@@ -205,6 +205,30 @@ html, body {
   height: 170px;
 }
 
+/* With thumbs on screen the minimap gives up size so the right-hand cluster
+   below it keeps clear air on every side. */
+body.touch-active #minimap {
+  width: clamp(96px, 24vmin, 132px);
+  height: clamp(96px, 24vmin, 132px);
+}
+
+body.touch-active #hud-topright {
+  width: clamp(96px, 24vmin, 132px);
+  gap: 4px;
+}
+
+/* Narrowed to the minimap's width, a box can no longer fit "00:00.000" beside
+   its label, so the label moves above the value and the number gets the full
+   width. Also shortens the stack, which is where the buttons need the room. */
+body.touch-active #hud-topright .info-box {
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 2px 7px 3px;
+}
+
+body.touch-active #hud-topright .info-box .label { font-size: 8px; letter-spacing: 0.5px; }
+body.touch-active #hud-topright .info-box .value { font-size: 12px; }
+
 /* --- Position badge (bottom-left) --- */
 
 #hud-position {
@@ -1093,7 +1117,7 @@ input[type='range'] {
 
 :root {
   --touch-margin: clamp(12px, 3vmin, 20px);
-  --touch-gap: clamp(8px, 2vmin, 14px);
+  --touch-gap: clamp(10px, 2.4vmin, 16px);
   --touch-stick: clamp(84px, 21vmin, 112px);
   --touch-gas: clamp(72px, 18vmin, 96px);
   --touch-brake: clamp(52px, 13vmin, 68px);
@@ -1116,7 +1140,7 @@ input[type='range'] {
   display: none;
 }
 
-/* --- Left cluster: joystick with drift tucked above it --- */
+/* --- Left cluster: the joystick alone --- */
 
 #touch-left {
   position: absolute;
@@ -1178,7 +1202,9 @@ input[type='range'] {
   border-color: #ffe9a8;
 }
 
-/* --- Right cluster: gas with brake beside it, item above the brake --- */
+/* --- Right cluster: a 2x2 keyed to the bottom-right corner ---------------
+       [ drift ] [ item  ]      drift rolls off the brake, item off the gas
+       [ brake ] [ GAS   ]      so neither needs the thumb to leave gas long. */
 
 #touch-right {
   position: absolute;
@@ -1186,16 +1212,17 @@ input[type='range'] {
   bottom: calc(var(--touch-margin) + env(safe-area-inset-bottom, 0px));
   display: grid;
   grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
   gap: var(--touch-gap);
   align-items: end;
   justify-items: center;
   pointer-events: none;
 }
 
-/* item above brake (left column), gas spanning the full height on the right */
-.touch-btn.secondary[data-touch='item'] { grid-column: 1; grid-row: 1; }
+.touch-btn.secondary[data-touch='drift'] { grid-column: 1; grid-row: 1; }
+.touch-btn.secondary[data-touch='item'] { grid-column: 2; grid-row: 1; }
 .touch-btn.brake { grid-column: 1; grid-row: 2; }
-.touch-btn.gas { grid-column: 2; grid-row: 1 / span 2; align-self: end; }
+.touch-btn.gas { grid-column: 2; grid-row: 2; }
 
 .touch-btn {
   pointer-events: auto;
@@ -1371,6 +1398,21 @@ input[type='range'] {
 
   #input-method { bottom: 12px; right: 12px; width: 30px; height: 30px; font-size: 15px; display: none; }
 
+  /* On a phone in landscape four stacked info boxes push the minimap down far
+     enough to meet the drift/item buttons. Pairing them into two columns buys
+     back two whole rows, so the minimap keeps its size and the cluster below
+     it keeps clear air on every side. */
+  body.touch-active #hud-topright {
+    width: 168px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 4px;
+  }
+
+  body.touch-active #minimap {
+    grid-column: 1 / -1;
+    justify-self: end; /* stay pinned to the corner, not centred over the pair */
+  }
 }
 
 
@@ -1409,8 +1451,8 @@ body.touch-active #hud-speedo .unit { font-size: 9px; }
   }
 
   #minimap {
-    width: 108px;
-    height: 108px;
+    width: 96px;
+    height: 96px;
   }
 
   .info-box {
@@ -1424,4 +1466,9 @@ body.touch-active #hud-speedo .unit { font-size: 9px; }
 
   body.touch-active #hud-position { top: 84px; }
   body.touch-active #hud-item { top: 34px; }
+
+  body.touch-active #minimap {
+    width: 96px;
+    height: 96px;
+  }
 }

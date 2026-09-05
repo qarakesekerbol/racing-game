@@ -38,15 +38,15 @@ export class TouchControls {
     // gas for the same reach.
     root.innerHTML = `
       <div id="touch-left">
-        <button class="touch-btn secondary" data-touch="drift" aria-label="Drift">
-          <span class="btn-glyph">⟳</span>
-        </button>
         <div id="touch-stick" class="touch-zone">
           <div class="stick-base"></div>
           <div class="stick-knob"></div>
         </div>
       </div>
       <div id="touch-right">
+        <button class="touch-btn secondary" data-touch="drift" aria-label="Drift">
+          <span class="btn-glyph">⟳</span>
+        </button>
         <button class="touch-btn secondary" data-touch="item" aria-label="Use item">
           <span class="btn-glyph">◆</span>
         </button>
