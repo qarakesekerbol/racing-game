@@ -250,8 +250,8 @@ html, body {
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  width: 128px;
-  height: 128px;
+  width: 108px;
+  height: 108px;
   border-radius: 50%;
 }
 
@@ -294,7 +294,7 @@ html, body {
 }
 
 #speed-value {
-  font-size: 34px;
+  font-size: 29px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -1086,8 +1086,21 @@ input[type='range'] {
 }
 
 /* --- Touch controls -------------------------------------------------------
-   Sized in vmin so the layout keeps its proportions across phone sizes, with
-   safe-area insets so nothing sits under a notch or home indicator. */
+   Compact, outline-first layout modelled on mobile kart racers: everything is
+   reachable without stretching, sits low in the corners, and stays faint until
+   touched so the road is never obscured. Sizes use clamp() so they hold their
+   proportions from a small phone up to a tablet without ever growing huge. */
+
+:root {
+  --touch-margin: clamp(12px, 3vmin, 20px);
+  --touch-gap: clamp(8px, 2vmin, 14px);
+  --touch-stick: clamp(84px, 21vmin, 112px);
+  --touch-gas: clamp(72px, 18vmin, 96px);
+  --touch-brake: clamp(52px, 13vmin, 68px);
+  --touch-secondary: clamp(44px, 11vmin, 56px);
+  --touch-idle: 0.4;
+  --touch-active: 0.92;
+}
 
 #touch-controls {
   position: fixed;
@@ -1103,119 +1116,135 @@ input[type='range'] {
   display: none;
 }
 
-#touch-stick {
+/* --- Left cluster: joystick with drift tucked above it --- */
+
+#touch-left {
   position: absolute;
-  left: calc(4vmin + env(safe-area-inset-left, 0px));
-  bottom: calc(5vmin + env(safe-area-inset-bottom, 0px));
-  width: 34vmin;
-  height: 34vmin;
-  max-width: 200px;
-  max-height: 200px;
-  min-width: 130px;
-  min-height: 130px;
+  left: calc(var(--touch-margin) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--touch-margin) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--touch-gap);
+  pointer-events: none;
+}
+
+#touch-stick {
+  position: relative;
+  width: var(--touch-stick);
+  height: var(--touch-stick);
   pointer-events: auto;
   touch-action: none;
+  opacity: var(--touch-idle);
+  transition: opacity 0.15s;
+}
+
+#touch-stick.active {
+  opacity: var(--touch-active);
 }
 
 .stick-base {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.12), rgba(10,14,24,0.28));
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(3px);
-  transition: border-color 0.15s, background 0.15s;
+  /* Outline-first: a hairline ring and the faintest wash, not a filled disc. */
+  background: rgba(10, 14, 24, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.06);
 }
 
 #touch-stick.active .stick-base {
-  border-color: rgba(255, 215, 94, 0.75);
-  background: radial-gradient(circle, rgba(255,215,94,0.16), rgba(10,14,24,0.34));
+  border-color: #ffd75e;
+  background: rgba(255, 215, 94, 0.12);
 }
 
 .stick-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 38%;
-  height: 38%;
-  margin-left: -19%;
-  margin-top: -19%;
+  width: 40%;
+  height: 40%;
+  margin-left: -20%;
+  margin-top: -20%;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
-  transition: transform 0.08s ease-out;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  transition: transform 0.1s ease-out, background 0.15s;
 }
 
 #touch-stick.active .stick-knob {
-  transition: none; /* follow the thumb exactly while dragging */
-  background: rgba(255, 215, 94, 0.7);
+  transition: background 0.15s; /* follow the thumb exactly while dragging */
+  background: rgba(255, 215, 94, 0.55);
+  border-color: #ffe9a8;
 }
+
+/* --- Right cluster: gas with brake beside it, item above the brake --- */
 
 #touch-right {
   position: absolute;
-  right: calc(4vmin + env(safe-area-inset-right, 0px));
-  bottom: calc(5vmin + env(safe-area-inset-bottom, 0px));
+  right: calc(var(--touch-margin) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--touch-margin) + env(safe-area-inset-bottom, 0px));
   display: grid;
   grid-template-columns: auto auto;
-  gap: 2.2vmin;
+  gap: var(--touch-gap);
   align-items: end;
+  justify-items: center;
   pointer-events: none;
 }
+
+/* item above brake (left column), gas spanning the full height on the right */
+.touch-btn.secondary[data-touch='item'] { grid-column: 1; grid-row: 1; }
+.touch-btn.brake { grid-column: 1; grid-row: 2; }
+.touch-btn.gas { grid-column: 2; grid-row: 1 / span 2; align-self: end; }
 
 .touch-btn {
   pointer-events: auto;
   touch-action: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
   font-family: inherit;
-  color: #fff;
-  background: rgba(20, 26, 40, 0.42);
-  border: 2px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(10, 14, 24, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
   border-radius: 50%;
-  backdrop-filter: blur(3px);
-  transition: transform 0.08s, background 0.1s, border-color 0.1s;
+  opacity: var(--touch-idle);
+  transition: opacity 0.12s, transform 0.08s, background 0.12s, border-color 0.12s;
 }
 
-.touch-btn .btn-glyph { font-size: 4.4vmin; line-height: 1; }
-.touch-btn .btn-label { font-size: 1.7vmin; font-weight: 800; letter-spacing: 1px; opacity: 0.8; }
-
-.touch-btn.gas {
-  width: 24vmin; height: 24vmin;
-  min-width: 96px; min-height: 96px;
-  max-width: 150px; max-height: 150px;
-  grid-column: 2; grid-row: 2;
-  background: rgba(60, 170, 90, 0.34);
-  border-color: rgba(120, 240, 160, 0.5);
+/* One consistent glyph size across every button, scaled to the button itself. */
+.touch-btn .btn-glyph {
+  font-size: 42%;
+  line-height: 1;
 }
 
-.touch-btn.brake {
-  width: 17vmin; height: 17vmin;
-  min-width: 74px; min-height: 74px;
-  max-width: 110px; max-height: 110px;
-  grid-column: 1; grid-row: 2;
-  background: rgba(200, 70, 60, 0.34);
-  border-color: rgba(255, 140, 120, 0.5);
-}
+.touch-btn.gas { width: var(--touch-gas); height: var(--touch-gas); }
+.touch-btn.brake { width: var(--touch-brake); height: var(--touch-brake); }
+.touch-btn.secondary { width: var(--touch-secondary); height: var(--touch-secondary); }
 
-.touch-btn.secondary {
-  width: 14vmin; height: 14vmin;
-  min-width: 62px; min-height: 62px;
-  max-width: 92px; max-height: 92px;
-  background: rgba(60, 100, 180, 0.32);
-  border-color: rgba(140, 190, 255, 0.45);
-}
-
-.touch-btn.secondary:nth-of-type(1) { grid-column: 1; grid-row: 1; }
-.touch-btn.secondary:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+/* Colour is carried by the outline while idle, filling in only when pressed. */
+.touch-btn.gas { border-color: rgba(120, 240, 160, 0.75); }
+.touch-btn.brake { border-color: rgba(255, 140, 120, 0.75); }
+.touch-btn.secondary { border-color: rgba(150, 195, 255, 0.7); }
 
 .touch-btn.pressed {
-  transform: scale(0.92);
-  background: rgba(255, 215, 94, 0.5);
-  border-color: #ffd75e;
+  opacity: var(--touch-active);
+  transform: scale(0.93);
+}
+
+.touch-btn.gas.pressed {
+  background: rgba(70, 200, 120, 0.55);
+  border-color: #8dffb8;
+}
+
+.touch-btn.brake.pressed {
+  background: rgba(220, 80, 70, 0.55);
+  border-color: #ff9d8c;
+}
+
+.touch-btn.secondary.pressed {
+  background: rgba(90, 150, 240, 0.55);
+  border-color: #a9d2ff;
 }
 
 /* --- Rotate prompt --- */
@@ -1317,11 +1346,11 @@ input[type='range'] {
   .info-box .value { font-size: 13px; }
 
   #hud-speedo {
-    width: 96px;
-    height: 96px;
+    width: 84px;
+    height: 84px;
   }
 
-  #speed-value { font-size: 26px; }
+  #speed-value { font-size: 23px; }
 
   /* The joystick owns the bottom-left corner on a phone, so the position
      badge moves up under the item slot instead of sitting beneath it. */
@@ -1342,18 +1371,6 @@ input[type='range'] {
 
   #input-method { bottom: 12px; right: 12px; width: 30px; height: 30px; font-size: 15px; display: none; }
 
-  /* One flat row of buttons along the bottom edge, so nothing reaches up
-     into the minimap's corner. */
-  #touch-right {
-    grid-template-columns: repeat(4, auto);
-    gap: 1.6vmin;
-    align-items: center;
-  }
-
-  .touch-btn.secondary:nth-of-type(1) { grid-column: 1; grid-row: 1; }
-  .touch-btn.secondary:nth-of-type(2) { grid-column: 2; grid-row: 1; }
-  .touch-btn.brake { grid-column: 3; grid-row: 1; }
-  .touch-btn.gas { grid-column: 4; grid-row: 1; }
 }
 
 
@@ -1368,3 +1385,43 @@ body.touch-active #hud-position {
 
 body.touch-active #hud-position #position-value { font-size: 34px; }
 body.touch-active #input-method { display: none; }
+
+
+/* With touch controls on screen the speedometer gives up space to the thumbs:
+   smaller, and lifted just clear of the gas/brake cluster. */
+body.touch-active #hud-speedo {
+  width: clamp(72px, 18vmin, 92px);
+  height: clamp(72px, 18vmin, 92px);
+  bottom: calc(var(--touch-margin) + 6px);
+}
+
+body.touch-active #speed-value { font-size: clamp(19px, 4.6vmin, 24px); }
+body.touch-active #hud-speedo .unit { font-size: 9px; }
+
+/* On very short screens (16:9 phones in landscape) the top-right stack reaches
+   far enough down to meet the item button. Compressing the stack keeps the
+   requested control arrangement — item above brake — intact on every device,
+   rather than reflowing the buttons differently per phone. */
+@media (max-height: 420px) {
+  #hud-topright {
+    width: 108px;
+    gap: 3px;
+  }
+
+  #minimap {
+    width: 108px;
+    height: 108px;
+  }
+
+  .info-box {
+    padding: 2px 7px;
+  }
+
+  .info-box .label { font-size: 8px; letter-spacing: 1px; }
+  .info-box .value { font-size: 11px; }
+
+  #hud-fps { font-size: 11px; padding: 2px 7px; }
+
+  body.touch-active #hud-position { top: 84px; }
+  body.touch-active #hud-item { top: 34px; }
+}

@@ -8,7 +8,9 @@
 //
 // Emits the same abstract fields as the keyboard and gamepad sources.
 
-const JOYSTICK_RADIUS = 62; // px the knob can travel from center
+// Fraction of the stick's radius the knob may travel. Derived from the
+// rendered size so the joystick can be restyled without touching the JS.
+const KNOB_TRAVEL = 0.68;
 
 export class TouchControls {
   constructor({ onFirstTouch } = {}) {
@@ -31,23 +33,28 @@ export class TouchControls {
     const root = document.createElement('div');
     root.id = 'touch-controls';
     root.hidden = true;
+    // Two thumb clusters. Drift sits above the joystick (left thumb) and item
+    // above the brake (right thumb), so neither secondary button competes with
+    // gas for the same reach.
     root.innerHTML = `
-      <div id="touch-stick" class="touch-zone">
-        <div class="stick-base"></div>
-        <div class="stick-knob"></div>
+      <div id="touch-left">
+        <button class="touch-btn secondary" data-touch="drift" aria-label="Drift">
+          <span class="btn-glyph">⟳</span>
+        </button>
+        <div id="touch-stick" class="touch-zone">
+          <div class="stick-base"></div>
+          <div class="stick-knob"></div>
+        </div>
       </div>
       <div id="touch-right">
         <button class="touch-btn secondary" data-touch="item" aria-label="Use item">
-          <span class="btn-glyph">◆</span><span class="btn-label">ITEM</span>
-        </button>
-        <button class="touch-btn secondary" data-touch="drift" aria-label="Drift">
-          <span class="btn-glyph">⟳</span><span class="btn-label">DRIFT</span>
+          <span class="btn-glyph">◆</span>
         </button>
         <button class="touch-btn brake" data-touch="brake" aria-label="Brake">
-          <span class="btn-glyph">▼</span><span class="btn-label">BRAKE</span>
+          <span class="btn-glyph">▼</span>
         </button>
         <button class="touch-btn gas" data-touch="gas" aria-label="Accelerate">
-          <span class="btn-glyph">▲</span><span class="btn-label">GAS</span>
+          <span class="btn-glyph">▲</span>
         </button>
       </div>
     `;
@@ -79,18 +86,19 @@ export class TouchControls {
 
     const moveKnob = (clientX, clientY) => {
       const rect = stickRect();
+      const radius = (rect.width / 2) * KNOB_TRAVEL;
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
       let dx = clientX - cx;
       let dy = clientY - cy;
       const dist = Math.hypot(dx, dy);
-      if (dist > JOYSTICK_RADIUS) {
-        dx = (dx / dist) * JOYSTICK_RADIUS;
-        dy = (dy / dist) * JOYSTICK_RADIUS;
+      if (dist > radius) {
+        dx = (dx / dist) * radius;
+        dy = (dy / dist) * radius;
       }
       this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
       // Screen right should steer right, which is negative in game space.
-      this.state.steer = -(dx / JOYSTICK_RADIUS);
+      this.state.steer = -(dx / radius);
       this._touched();
     };
 
