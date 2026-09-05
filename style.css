@@ -62,3 +62,76 @@ html, body {
   font-weight: 400;
   opacity: 0.8;
 }
+
+#hud-total {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 20px;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+#hud-total .unit {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+#hud-drift {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  animation: drift-pulse 0.5s ease-in-out infinite alternate;
+}
+
+#drift-label {
+  font-size: 30px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 4px;
+  color: #ffb347;
+  text-shadow: 0 0 12px rgba(255, 120, 30, 0.8), 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+#drift-score {
+  font-size: 26px;
+  font-weight: 700;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+}
+
+#drift-combo {
+  font-size: 20px;
+  font-weight: 800;
+  color: #7cf46a;
+  text-shadow: 0 0 10px rgba(80, 255, 60, 0.7), 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+@keyframes drift-pulse {
+  from { transform: translateX(-50%) scale(1); }
+  to { transform: translateX(-50%) scale(1.07); }
+}
+
+#drift-bank {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 36px;
+  font-weight: 800;
+  color: #ffd75e;
+  text-shadow: 0 0 14px rgba(255, 180, 40, 0.9), 0 2px 5px rgba(0, 0, 0, 0.8);
+}
+
+#drift-bank.bank-anim {
+  animation: bank-fly 1.4s ease-out forwards;
+}
+
+@keyframes bank-fly {
+  0% { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.6); }
+  15% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.15); }
+  30% { transform: translateX(-50%) translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-50px) scale(1); }
+}

@@ -12,6 +12,7 @@ Plain JavaScript (ES modules), no TypeScript, no frameworks (no React/Vue/etc).
 ```
 src/
   core/       # Engine-level systems: game loop, input, camera, physics, asset loading
+              # config.js: all tunable gameplay/visual numbers live there, not inline
   entities/   # Concrete game objects: Car, (future) Obstacle, PowerUp, etc.
   world/      # Scene/world building: Track, Ground, Lighting, Skybox
   ui/         # HUD and any DOM/CSS-driven UI overlays

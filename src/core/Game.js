@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { InputController } from './InputController.js';
 import { ChaseCamera } from './ChaseCamera.js';
 import { Car } from '../entities/Car.js';
+import { SkidMarks } from '../entities/SkidMarks.js';
+import { TireSmoke } from '../entities/TireSmoke.js';
 import { Track } from '../world/Track.js';
 import { Ground } from '../world/Ground.js';
 import { Lighting } from '../world/Lighting.js';
@@ -70,6 +72,15 @@ export class Game {
     this.car.reset(start.x, start.z, start.heading);
 
     this.chaseCamera = new ChaseCamera(this.camera);
+
+    this.skidMarks = new SkidMarks();
+    this.skidMarks.addTo(this.scene);
+
+    this.tireSmoke = new TireSmoke();
+    this.tireSmoke.addTo(this.scene);
+
+    this._rearLeft = new THREE.Vector3();
+    this._rearRight = new THREE.Vector3();
   }
 
   start() {
@@ -84,14 +95,34 @@ export class Game {
     const input = this.input.getState();
 
     this.car.update(dt, input);
-    this.chaseCamera.update(dt, this.car.mesh);
+    const state = this.car.physics.getState();
+
+    this._updateDriftEffects(dt, state);
+    this.chaseCamera.update(dt, this.car.mesh, state);
 
     this.renderer.render(this.scene, this.camera);
-    this._updateHud(dt);
+    this._updateHud(dt, state);
   }
 
-  _updateHud(dt) {
-    this.hud.setSpeedKmh(this.car.physics.getState().speedKmh);
+  _updateDriftEffects(dt, state) {
+    if (state.drifting) {
+      this.car.getRearWheelWorldPositions(this._rearLeft, this._rearRight);
+      this.skidMarks.addMark('rearLeft', this._rearLeft, state.heading);
+      this.skidMarks.addMark('rearRight', this._rearRight, state.heading);
+
+      const intensity = Math.min(1, state.slipDeg / 35);
+      this.tireSmoke.spawnAt(this._rearLeft, dt, intensity);
+      this.tireSmoke.spawnAt(this._rearRight, dt, intensity);
+    } else if (state.driftJustEnded) {
+      this.skidMarks.endTrail();
+    }
+
+    this.tireSmoke.update(dt);
+  }
+
+  _updateHud(dt, state) {
+    this.hud.setSpeedKmh(state.speedKmh);
+    this.hud.updateDrift(state);
 
     this._fpsTime += dt;
     this._fpsFrames += 1;

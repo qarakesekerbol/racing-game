@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CarPhysics } from '../core/CarPhysics.js';
+import { CONFIG } from '../core/config.js';
 
 // Visual representation of the car built from primitives.
 // Owns a CarPhysics instance and syncs the mesh from its numeric state each frame.
@@ -14,10 +15,16 @@ export class Car {
   constructor() {
     this.physics = new CarPhysics();
     this.mesh = new THREE.Group();
+    this._roll = 0; // smoothed body roll, radians
     this._buildMesh();
   }
 
   _buildMesh() {
+    // Body + cabin live in their own group so they can roll into turns
+    // without tilting the wheels.
+    this._bodyGroup = new THREE.Group();
+    this.mesh.add(this._bodyGroup);
+
     const bodyGeometry = new THREE.BoxGeometry(BODY_WIDTH, BODY_HEIGHT, BODY_LENGTH);
     const bodyMaterial = new THREE.MeshStandardMaterial({
       color: 0xd1263a,
@@ -28,7 +35,7 @@ export class Car {
     body.position.y = WHEEL_RADIUS + BODY_HEIGHT / 2;
     body.castShadow = true;
     body.receiveShadow = true;
-    this.mesh.add(body);
+    this._bodyGroup.add(body);
 
     const cabinHeight = BODY_HEIGHT * 0.75;
     const cabinGeometry = new THREE.BoxGeometry(
@@ -48,7 +55,7 @@ export class Car {
       -BODY_LENGTH * 0.06
     );
     cabin.castShadow = true;
-    this.mesh.add(cabin);
+    this._bodyGroup.add(cabin);
 
     // Bake the cylinder orientation into the geometry so the wheel's local X axis
     // is its rolling axle; mesh.rotation.x can then be used purely for spin.
@@ -103,5 +110,29 @@ export class Car {
     for (const wheel of Object.values(this.wheels)) {
       wheel.userData.spinMesh.rotation.x += spinDelta;
     }
+
+    this._updateBodyRoll(dt, state);
+  }
+
+  _updateBodyRoll(dt, state) {
+    const cfg = CONFIG.bodyRoll;
+    const driftFactor = state.drifting ? 1 : 0.35;
+    const targetRoll = THREE.MathUtils.clamp(
+      state.slipAngle * cfg.perSlipRad * driftFactor +
+        state.steerAngle * cfg.perSteerRad * Math.min(1, Math.abs(state.speed) / 15),
+      -cfg.max,
+      cfg.max
+    );
+    this._roll += (targetRoll - this._roll) * Math.min(1, cfg.lerpSpeed * dt);
+    this._bodyGroup.rotation.z = this._roll;
+  }
+
+  // World positions of the rear wheel contact points, for skid marks and smoke.
+  getRearWheelWorldPositions(outLeft, outRight) {
+    this.wheels.rearLeft.getWorldPosition(outLeft);
+    this.wheels.rearRight.getWorldPosition(outRight);
+    outLeft.y = 0;
+    outRight.y = 0;
+    return [outLeft, outRight];
   }
 }
