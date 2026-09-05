@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { InputController } from './InputController.js';
 import { ChaseCamera } from './ChaseCamera.js';
 import { RaceManager } from './RaceManager.js';
+import { AIDriver } from './AIDriver.js';
+import { Collisions } from './Collisions.js';
+import { CONFIG } from './config.js';
 import { Car } from '../entities/Car.js';
+import { AICar } from '../entities/AICar.js';
 import { SkidMarks } from '../entities/SkidMarks.js';
 import { TireSmoke } from '../entities/TireSmoke.js';
 import { Track } from '../world/Track.js';
@@ -41,16 +45,22 @@ export class Game {
     this.hud = new HUD();
     this.hud.onRestart = () => this._restartRace();
 
-    this._trackSamples = this.track.getSampledPositions(TRACK_SAMPLE_COUNT);
     this.raceManager = new RaceManager({ samples: this._trackSamples, playerId: PLAYER_ID });
     this.raceManager.registerCar(PLAYER_ID);
+    for (const aiCar of this.aiCars) this.raceManager.registerCar(aiCar.id);
+
+    this.collisions = new Collisions({ samples: this._trackSamples });
 
     this.minimap = new Minimap(document.getElementById('minimap'), this._trackSamples);
+
+    this._placeCarsOnGrid();
+    this.raceManager.primeCarPositions(this._collectCarsData());
 
     this._fpsTime = 0;
     this._fpsFrames = 0;
     this._finishShown = false;
     this._restartHeld = false;
+    this._standingsTimer = 0;
 
     this._onResize = () => this._handleResize();
     window.addEventListener('resize', this._onResize);
@@ -84,14 +94,31 @@ export class Game {
 
     this.track = new Track();
     this.track.addTo(this.scene);
+
+    // One shared sample array for race logic, AI drivers, collisions, minimap.
+    this._trackSamples = this.track.getSampledPositions(TRACK_SAMPLE_COUNT);
   }
 
   _initEntities() {
     this.car = new Car();
     this.scene.add(this.car.mesh);
 
-    const start = this.track.getStartTransform();
-    this.car.reset(start.x, start.z, start.heading);
+    this.aiCars = [];
+    for (let i = 0; i < CONFIG.ai.count; i++) {
+      const { hex, name } = CONFIG.ai.colors[i % CONFIG.ai.colors.length];
+      const driver = new AIDriver({
+        samples: this._trackSamples,
+        params: {
+          maxSpeed: CONFIG.car.maxSpeed * randRange(CONFIG.ai.maxSpeedFactor),
+          aggression: randRange(CONFIG.ai.aggression),
+          lateralOffset: (Math.random() * 2 - 1) * CONFIG.ai.lateralOffsetRange,
+        },
+      });
+      const aiCar = new AICar({ color: hex, name, driver });
+      aiCar.id = `ai-${i}`;
+      this.aiCars.push(aiCar);
+      this.scene.add(aiCar.mesh);
+    }
 
     this.chaseCamera = new ChaseCamera(this.camera);
 
@@ -103,6 +130,22 @@ export class Game {
 
     this._rearLeft = new THREE.Vector3();
     this._rearRight = new THREE.Vector3();
+  }
+
+  _placeCarsOnGrid() {
+    // Player takes the last slot, AI fill the rows ahead.
+    const slots = this.track.getGridSlots(this.aiCars.length + 1);
+    this.aiCars.forEach((aiCar, i) => aiCar.resetToGrid(slots[i]));
+    const playerSlot = slots[slots.length - 1];
+    this.car.reset(playerSlot.x, playerSlot.z, playerSlot.heading);
+  }
+
+  _collectCarsData() {
+    const data = [{ id: PLAYER_ID, x: this.car.physics.x, z: this.car.physics.z }];
+    for (const aiCar of this.aiCars) {
+      data.push({ id: aiCar.id, x: aiCar.physics.x, z: aiCar.physics.z });
+    }
+    return data;
   }
 
   start() {
@@ -125,10 +168,33 @@ export class Game {
     const input = locked ? NEUTRAL_INPUT : rawInput;
 
     this.car.update(dt, input);
+
+    // AI cars share position data and race progress for avoidance/rubber-banding.
+    const carsData = this._collectCarsData();
+    const playerProgress = this.raceManager.getCarState(PLAYER_ID).progress;
+    const aiLocked = this.raceManager.controlsLocked;
+    for (const aiCar of this.aiCars) {
+      aiCar.updateAI(dt, {
+        cars: carsData,
+        selfId: aiCar.id,
+        playerProgress,
+        myProgress: this.raceManager.getCarState(aiCar.id).progress,
+        raceRunning: !aiLocked,
+        locked: aiLocked,
+      });
+    }
+
+    // Collisions mutate physics positions/velocities, so meshes re-sync after.
+    this.collisions.resolve([
+      this.car.physics,
+      ...this.aiCars.map((aiCar) => aiCar.physics),
+    ]);
+    this.car.syncTransform();
+    for (const aiCar of this.aiCars) aiCar.syncTransform();
+
+    this.raceManager.update(dt, this._collectCarsData());
+
     const state = this.car.physics.getState();
-
-    this.raceManager.update(dt, [{ id: PLAYER_ID, x: state.x, z: state.z }]);
-
     this._updateDriftEffects(dt, state);
     this.chaseCamera.update(dt, this.car.mesh, state);
 
@@ -138,12 +204,31 @@ export class Game {
 
   _restartRace() {
     this.raceManager.restart();
-    const start = this.track.getStartTransform();
-    this.car.reset(start.x, start.z, start.heading);
+    this._placeCarsOnGrid();
+    this.raceManager.primeCarPositions(this._collectCarsData());
+    this.collisions.reset();
     this.skidMarks.endTrail();
     this.hud.hideFinish();
     this.hud.resetDriftDisplay();
     this._finishShown = false;
+  }
+
+  _buildStandings() {
+    const rankings = this.raceManager.getRankings();
+    const nameById = new Map([[PLAYER_ID, { name: 'You', color: this.car.color }]]);
+    for (const aiCar of this.aiCars) {
+      nameById.set(aiCar.id, { name: aiCar.name, color: aiCar.color });
+    }
+    return rankings.map((entry, i) => ({
+      rank: i + 1,
+      name: nameById.get(entry.id).name,
+      color: nameById.get(entry.id).color,
+      isPlayer: entry.id === PLAYER_ID,
+      finished: entry.finished,
+      finishTime: entry.finishTime,
+      lap: Math.min(entry.lapsCompleted + 1, this.raceManager.totalLaps),
+      totalLaps: this.raceManager.totalLaps,
+    }));
   }
 
   _updateDriftEffects(dt, state) {
@@ -175,12 +260,28 @@ export class Game {
     this.hud.setRaceTime(this.raceManager.raceTime);
     this.hud.setBestLap(race.bestLap);
 
+    // Real position among all cars, updated every frame.
+    const rankings = this.raceManager.getRankings();
+    const playerRank = rankings.findIndex((entry) => entry.id === PLAYER_ID) + 1;
+    this.hud.setPosition(playerRank);
+
     if (race.finished && !this._finishShown) {
       this._finishShown = true;
       this.hud.showFinish(race.finishTime, race.bestLap);
+      this.hud.updateStandings(this._buildStandings());
+      this._standingsTimer = 0;
     }
 
-    this.minimap.update([
+    // Standings stay live while the overlay is up (AI keep finishing laps).
+    if (this._finishShown) {
+      this._standingsTimer += dt;
+      if (this._standingsTimer >= 0.5) {
+        this._standingsTimer = 0;
+        this.hud.updateStandings(this._buildStandings());
+      }
+    }
+
+    const minimapCars = [
       {
         x: state.x,
         z: state.z,
@@ -188,7 +289,17 @@ export class Game {
         color: PLAYER_MINIMAP_COLOR,
         isPlayer: true,
       },
-    ]);
+    ];
+    for (const aiCar of this.aiCars) {
+      minimapCars.push({
+        x: aiCar.physics.x,
+        z: aiCar.physics.z,
+        heading: aiCar.physics.heading,
+        color: aiCar.color,
+        isPlayer: false,
+      });
+    }
+    this.minimap.update(minimapCars);
 
     this._fpsTime += dt;
     this._fpsFrames += 1;
@@ -204,4 +315,8 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
+}
+
+function randRange([min, max]) {
+  return min + Math.random() * (max - min);
 }

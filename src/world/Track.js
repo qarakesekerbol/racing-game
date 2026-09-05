@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CONFIG } from '../core/config.js';
 
 // Closed-loop track built from a CatmullRomCurve3 spline.
 // The road is a flat triangle-strip ribbon; barriers are thin vertical walls
@@ -166,6 +167,29 @@ export class Track {
     const tangent = this.curve.getTangentAt(0);
     const heading = Math.atan2(tangent.x, tangent.z);
     return { x: point.x, z: point.z, heading };
+  }
+
+  // Starting grid: 2 columns behind the start line. Slot 0 is the front row,
+  // the last slot is furthest back (traditionally the player's).
+  getGridSlots(count) {
+    const cfg = CONFIG.grid;
+    const length = this.curve.getLength();
+    const slots = [];
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / 2);
+      const distanceBack = cfg.firstRowDistance + row * cfg.rowSpacing;
+      const t = ((1 - distanceBack / length) % 1 + 1) % 1;
+      const point = this.curve.getPointAt(t);
+      const tangent = this.curve.getTangentAt(t);
+      const normal = new THREE.Vector3().crossVectors(UP, tangent).normalize();
+      const side = i % 2 === 0 ? 1 : -1;
+      slots.push({
+        x: point.x + normal.x * side * cfg.columnOffset,
+        z: point.z + normal.z * side * cfg.columnOffset,
+        heading: Math.atan2(tangent.x, tangent.z),
+      });
+    }
+    return slots;
   }
 
   // Plain {x, z} samples along the spline for race logic and the minimap —

@@ -309,6 +309,53 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+#finish-standings {
+  margin-top: 16px;
+  text-align: left;
+}
+
+.standing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 14px;
+  border-radius: 6px;
+  opacity: 0.85;
+}
+
+.standing-row.player {
+  background: rgba(255, 179, 71, 0.15);
+  font-weight: 700;
+  opacity: 1;
+}
+
+.standing-rank {
+  width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.standing-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.standing-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.standing-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
 #restart-button {
   pointer-events: auto;
   margin-top: 22px;

@@ -81,12 +81,23 @@ export class Minimap {
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.drawImage(this._trackLayer, 0, 0, this.width, this.height);
 
+    // AI cars as small dots first, player triangle on top.
     for (const car of cars) {
+      if (car.isPlayer) continue;
+      const [x, y] = this._toMap(car.x, car.z);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = car.color;
+      ctx.fill();
+    }
+
+    for (const car of cars) {
+      if (!car.isPlayer) continue;
       const [x, y] = this._toMap(car.x, car.z);
       // Screen-space direction of the car's forward vector (sin h, cos h),
       // with Z flipped to match _toMap.
       const angle = Math.atan2(-Math.cos(car.heading), Math.sin(car.heading));
-      const size = car.isPlayer ? 6 : 5;
+      const size = 6;
 
       ctx.save();
       ctx.translate(x, y);
@@ -98,11 +109,9 @@ export class Minimap {
       ctx.closePath();
       ctx.fillStyle = car.color;
       ctx.fill();
-      if (car.isPlayer) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-      }
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
       ctx.restore();
     }
   }

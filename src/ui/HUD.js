@@ -32,6 +32,7 @@ export class HUD {
     this._maxKmh = CONFIG.car.maxSpeed * 3.6 * CONFIG.drift.boostMaxSpeedFactor;
     this._bankTimeout = 0;
     this._lastCountdown = null;
+    this._lastRank = 0;
   }
 
   setSpeedKmh(kmh) {
@@ -58,9 +59,11 @@ export class HUD {
     this.bestElement.textContent = seconds === null ? '--:--.---' : formatTime(seconds);
   }
 
-  setPosition(rank, suffix) {
+  setPosition(rank) {
+    if (rank === this._lastRank) return;
+    this._lastRank = rank;
     document.getElementById('position-value').textContent = rank;
-    document.getElementById('position-suffix').textContent = suffix;
+    document.getElementById('position-suffix').textContent = ordinalSuffix(rank);
   }
 
   // display: '3' | '2' | '1' | 'GO!' | null
@@ -86,6 +89,36 @@ export class HUD {
     this.finishBestElement.textContent =
       bestLapSeconds === null ? '--:--.---' : formatTime(bestLapSeconds);
     this.finishOverlay.hidden = false;
+  }
+
+  // standings: [{ rank, name, color, isPlayer, finished, finishTime, lap, totalLaps }]
+  updateStandings(standings) {
+    const container = document.getElementById('finish-standings');
+    container.replaceChildren();
+    for (const entry of standings) {
+      const row = document.createElement('div');
+      row.className = entry.isPlayer ? 'standing-row player' : 'standing-row';
+
+      const rank = document.createElement('span');
+      rank.className = 'standing-rank';
+      rank.textContent = `${entry.rank}.`;
+
+      const name = document.createElement('span');
+      name.className = 'standing-name';
+      const dot = document.createElement('span');
+      dot.className = 'standing-dot';
+      dot.style.background = entry.color;
+      name.append(dot, entry.name);
+
+      const time = document.createElement('span');
+      time.className = 'standing-time';
+      time.textContent = entry.finished
+        ? formatTime(entry.finishTime)
+        : `Lap ${entry.lap}/${entry.totalLaps}`;
+
+      row.append(rank, name, time);
+      container.append(row);
+    }
   }
 
   hideFinish() {
@@ -129,6 +162,15 @@ export class HUD {
       el.classList.remove('bank-anim');
     }, 1400);
   }
+}
+
+function ordinalSuffix(n) {
+  const ones = n % 10;
+  const tens = n % 100;
+  if (ones === 1 && tens !== 11) return 'st';
+  if (ones === 2 && tens !== 12) return 'nd';
+  if (ones === 3 && tens !== 13) return 'rd';
+  return 'th';
 }
 
 function formatTime(seconds) {

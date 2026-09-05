@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { CarPhysics } from '../core/CarPhysics.js';
 import { CONFIG } from '../core/config.js';
 
-// Visual representation of the car built from primitives.
+// Visual representation of a car built from primitives.
 // Owns a CarPhysics instance and syncs the mesh from its numeric state each frame.
+// Geometries and non-body materials are shared across all cars (player + AI);
+// body materials are cached per color.
 
 const BODY_WIDTH = 1.8;
 const BODY_HEIGHT = 0.6;
@@ -11,44 +13,70 @@ const BODY_LENGTH = 4.2;
 const WHEEL_RADIUS = 0.35;
 const WHEEL_WIDTH = 0.3;
 
+let shared = null;
+const bodyMaterialCache = new Map();
+
+function getShared() {
+  if (shared) return shared;
+
+  const wheelGeometry = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_WIDTH, 20);
+  // Bake the cylinder orientation so the wheel's local X axis is its rolling
+  // axle; mesh.rotation.x can then be used purely for spin.
+  wheelGeometry.rotateZ(Math.PI / 2);
+
+  shared = {
+    bodyGeometry: new THREE.BoxGeometry(BODY_WIDTH, BODY_HEIGHT, BODY_LENGTH),
+    cabinGeometry: new THREE.BoxGeometry(
+      BODY_WIDTH * 0.75,
+      BODY_HEIGHT * 0.75,
+      BODY_LENGTH * 0.42
+    ),
+    wheelGeometry,
+    cabinMaterial: new THREE.MeshStandardMaterial({
+      color: 0x1b1f24,
+      metalness: 0.1,
+      roughness: 0.6,
+    }),
+    wheelMaterial: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
+  };
+  return shared;
+}
+
+function getBodyMaterial(color) {
+  if (!bodyMaterialCache.has(color)) {
+    bodyMaterialCache.set(
+      color,
+      new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.5 })
+    );
+  }
+  return bodyMaterialCache.get(color);
+}
+
 export class Car {
-  constructor() {
+  constructor({ color = '#d1263a' } = {}) {
     this.physics = new CarPhysics();
     this.mesh = new THREE.Group();
+    this.color = color;
     this._roll = 0; // smoothed body roll, radians
     this._buildMesh();
   }
 
   _buildMesh() {
+    const res = getShared();
+
     // Body + cabin live in their own group so they can roll into turns
     // without tilting the wheels.
     this._bodyGroup = new THREE.Group();
     this.mesh.add(this._bodyGroup);
 
-    const bodyGeometry = new THREE.BoxGeometry(BODY_WIDTH, BODY_HEIGHT, BODY_LENGTH);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: 0xd1263a,
-      metalness: 0.3,
-      roughness: 0.5,
-    });
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    const body = new THREE.Mesh(res.bodyGeometry, getBodyMaterial(this.color));
     body.position.y = WHEEL_RADIUS + BODY_HEIGHT / 2;
     body.castShadow = true;
     body.receiveShadow = true;
     this._bodyGroup.add(body);
 
     const cabinHeight = BODY_HEIGHT * 0.75;
-    const cabinGeometry = new THREE.BoxGeometry(
-      BODY_WIDTH * 0.75,
-      cabinHeight,
-      BODY_LENGTH * 0.42
-    );
-    const cabinMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1b1f24,
-      metalness: 0.1,
-      roughness: 0.6,
-    });
-    const cabin = new THREE.Mesh(cabinGeometry, cabinMaterial);
+    const cabin = new THREE.Mesh(res.cabinGeometry, res.cabinMaterial);
     cabin.position.set(
       0,
       body.position.y + BODY_HEIGHT / 2 + cabinHeight / 2 - 0.05,
@@ -57,29 +85,23 @@ export class Car {
     cabin.castShadow = true;
     this._bodyGroup.add(cabin);
 
-    // Bake the cylinder orientation into the geometry so the wheel's local X axis
-    // is its rolling axle; mesh.rotation.x can then be used purely for spin.
-    const wheelGeometry = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_WIDTH, 20);
-    wheelGeometry.rotateZ(Math.PI / 2);
-    const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
-
     const offsetX = BODY_WIDTH / 2 + WHEEL_WIDTH / 2 - 0.08;
     const offsetZ = BODY_LENGTH / 2 - WHEEL_RADIUS - 0.25;
 
     this.wheels = {
-      frontLeft: this._createWheel(wheelGeometry, wheelMaterial, offsetX, offsetZ),
-      frontRight: this._createWheel(wheelGeometry, wheelMaterial, -offsetX, offsetZ),
-      rearLeft: this._createWheel(wheelGeometry, wheelMaterial, offsetX, -offsetZ),
-      rearRight: this._createWheel(wheelGeometry, wheelMaterial, -offsetX, -offsetZ),
+      frontLeft: this._createWheel(res, offsetX, offsetZ),
+      frontRight: this._createWheel(res, -offsetX, offsetZ),
+      rearLeft: this._createWheel(res, offsetX, -offsetZ),
+      rearRight: this._createWheel(res, -offsetX, -offsetZ),
     };
   }
 
-  _createWheel(geometry, material, x, z) {
+  _createWheel(res, x, z) {
     // Pivot group handles steering (Y rotation); inner mesh handles spin (X rotation).
     const pivot = new THREE.Group();
     pivot.position.set(x, WHEEL_RADIUS, z);
 
-    const wheelMesh = new THREE.Mesh(geometry, material);
+    const wheelMesh = new THREE.Mesh(res.wheelGeometry, res.wheelMaterial);
     wheelMesh.castShadow = true;
     wheelMesh.receiveShadow = true;
     pivot.add(wheelMesh);
@@ -91,17 +113,14 @@ export class Car {
 
   reset(x, z, heading) {
     this.physics.reset(x, z, heading);
-    const state = this.physics.getState();
-    this.mesh.position.set(state.x, 0, state.z);
-    this.mesh.rotation.y = state.heading;
+    this.syncTransform();
   }
 
   update(dt, input) {
     this.physics.update(dt, input);
     const state = this.physics.getState();
 
-    this.mesh.position.set(state.x, 0, state.z);
-    this.mesh.rotation.y = state.heading;
+    this.syncTransform();
 
     this.wheels.frontLeft.rotation.y = state.steerAngle;
     this.wheels.frontRight.rotation.y = state.steerAngle;
@@ -112,6 +131,13 @@ export class Car {
     }
 
     this._updateBodyRoll(dt, state);
+  }
+
+  // Mesh follows physics. Called from update() and again after collision
+  // resolution, which mutates physics positions after the entity update.
+  syncTransform() {
+    this.mesh.position.set(this.physics.x, 0, this.physics.z);
+    this.mesh.rotation.y = this.physics.heading;
   }
 
   _updateBodyRoll(dt, state) {

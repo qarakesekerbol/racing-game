@@ -71,4 +71,61 @@ export const CONFIG = {
     max: 0.2, // radians
     lerpSpeed: 6, // 1/s
   },
+
+  ai: {
+    count: 7,
+    // hex string works for both THREE.Color and canvas fillStyle
+    colors: [
+      { hex: '#2f7de1', name: 'Blue' },
+      { hex: '#36b24a', name: 'Green' },
+      { hex: '#f2c230', name: 'Yellow' },
+      { hex: '#8e44ad', name: 'Purple' },
+      { hex: '#e67e22', name: 'Orange' },
+      { hex: '#1abcb4', name: 'Cyan' },
+      { hex: '#e84393', name: 'Pink' },
+    ],
+    // per-car randomness ranges [min, max]
+    maxSpeedFactor: [0.86, 0.97], // of CONFIG.car.maxSpeed
+    aggression: [0.7, 1.0], // 1 = brakes late, corners fast
+    lateralOffsetRange: 2.2, // random preferred offset from center line, +/- meters
+    // driving
+    lookAheadBase: 6, // meters
+    lookAheadPerSpeed: 0.45, // extra look-ahead seconds worth of travel
+    steerDeadzone: 0.05, // radians of heading error before steering kicks in
+    cornerLookAhead: 26, // meters ahead to measure upcoming curvature
+    cornerMaxAngle: 1.1, // radians of heading change that means "hairpin"
+    minCornerSpeed: 11, // m/s floor in the tightest corners
+    brakeMargin: 2.5, // m/s over target speed before actively braking
+    // avoidance
+    avoidDistance: 11, // meters ahead to start reacting to a car
+    avoidBrakeDistance: 5.5, // closer than this = lift off hard
+    avoidShift: 2.0, // sideways target shift, meters
+    avoidWidth: 2.4, // lateral corridor that counts as "directly ahead"
+    // stuck recovery
+    stuckSpeed: 1.0, // below this counts as stuck, m/s
+    stuckTime: 3.0, // seconds
+    reverseTime: 1.2, // seconds of backing up
+    // rubber-banding (mild by default)
+    rubberBand: {
+      strength: 0.5, // speed adjustment per full lap of gap to the player
+      maxBoost: 0.1, // cap when far behind (+10% speed)
+      maxSlow: 0.08, // cap when far ahead (-8% speed)
+    },
+  },
+
+  collisions: {
+    carRadius: 1.4, // bounding circle per car, meters
+    restitution: 0.4, // bounciness of car-vs-car impacts
+    carSpeedLoss: 0.96, // velocity multiplier applied on impact
+    // barrier sits at ROAD_WIDTH/2 + BARRIER_OFFSET = 5.9m from the center line
+    wallMaxLateral: 4.85, // max |lateral| for a car center before wall contact
+    wallSpeedLoss: 0.9, // velocity multiplier on wall contact
+    wallBounce: 0.25, // how much outward velocity reflects back
+  },
+
+  grid: {
+    firstRowDistance: 8, // meters behind the start line
+    rowSpacing: 7,
+    columnOffset: 2.3, // meters left/right of center line
+  },
 };
