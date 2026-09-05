@@ -40,8 +40,7 @@ style.css     # Global + HUD styles
 
 ## Planned extension points (design with these in mind, don't build yet)
 
-- Drift mechanics (handbrake is already wired as a placeholder input)
-- Minimap
+- AI opponents (RaceManager already tracks any car by id; Minimap accepts a car array)
 - Night mode (lighting/skybox swap)
 - Obstacles and power-ups (new files under `src/entities/`)
 

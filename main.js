@@ -6,6 +6,8 @@ const game = new Game(canvas);
 // Debug autopilot for visual testing without a keyboard: open /?demo
 // Accelerates, then kicks into a handbrake drift and holds the slide.
 if (new URLSearchParams(location.search).has('demo')) {
+  window.game = game; // console access for debugging/visual checks
+  const realGetState = game.input.getState.bind(game.input);
   let phase = 'accel';
   game.input.getState = () => {
     const state = game.car.physics.getState();
@@ -17,6 +19,7 @@ if (new URLSearchParams(location.search).has('demo')) {
       left: drifting,
       right: false,
       handbrake: drifting && state.slipDeg < 20,
+      restart: realGetState().restart, // keep R working under autopilot
     };
   };
 }

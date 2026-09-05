@@ -29,21 +29,20 @@ html, body {
   user-select: none;
 }
 
-#hud-speed {
-  position: absolute;
-  bottom: 24px;
-  right: 24px;
-  font-size: 42px;
-  font-weight: 700;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
-  text-align: right;
+.panel {
+  background: rgba(10, 13, 20, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  backdrop-filter: blur(5px);
 }
 
-#hud-speed .unit {
-  font-size: 16px;
+.unit {
+  font-size: 11px;
   font-weight: 400;
-  opacity: 0.8;
+  opacity: 0.75;
 }
+
+/* --- FPS (top-left) --- */
 
 #hud-fps {
   position: absolute;
@@ -51,36 +50,130 @@ html, body {
   left: 12px;
   font-size: 14px;
   font-weight: 600;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 4px 8px;
-  border-radius: 4px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  padding: 4px 10px;
 }
 
-#hud-fps .unit {
-  font-size: 11px;
-  font-weight: 400;
-  opacity: 0.8;
-}
+/* --- Top-right stack: lap / time / best / points / minimap --- */
 
-#hud-total {
+#hud-topright {
   position: absolute;
   top: 12px;
-  right: 16px;
-  font-size: 20px;
-  font-weight: 700;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 170px;
 }
 
-#hud-total .unit {
-  font-size: 12px;
-  font-weight: 400;
-  opacity: 0.8;
+.info-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 12px;
 }
+
+.info-box .label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  opacity: 0.65;
+}
+
+.info-box .value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#minimap {
+  width: 170px;
+  height: 170px;
+}
+
+/* --- Position badge (bottom-left) --- */
+
+#hud-position {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  padding: 8px 18px 10px;
+}
+
+#position-value {
+  font-size: 44px;
+  font-weight: 800;
+  font-style: italic;
+}
+
+#position-suffix {
+  font-size: 18px;
+  font-weight: 700;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+
+/* --- Speedometer (bottom-center) --- */
+
+#hud-speedo {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+}
+
+#hud-speedo svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 270-degree arc, gap centered at the bottom */
+  transform: rotate(135deg);
+}
+
+#hud-speedo circle {
+  fill: none;
+  stroke-width: 7;
+  stroke-linecap: round;
+  /* circumference of r=42 circle */
+  stroke-dasharray: 263.9 263.9;
+}
+
+.speedo-bg {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-dashoffset: 65.97; /* C * (1 - 0.75): full 270-degree background */
+}
+
+#speedo-arc {
+  stroke: #ffb347;
+  stroke-dashoffset: 263.9; /* empty; JS animates toward 65.97 */
+  transition: stroke 0.2s;
+}
+
+#speedo-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+#speed-value {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Drift indicator (top-center) --- */
 
 #hud-drift {
   position: absolute;
-  top: 22%;
+  top: 20%;
   left: 50%;
   transform: translateX(-50%);
   text-align: center;
@@ -116,7 +209,7 @@ html, body {
 
 #drift-bank {
   position: absolute;
-  top: 34%;
+  top: 32%;
   left: 50%;
   transform: translateX(-50%);
   font-size: 36px;
@@ -134,4 +227,104 @@ html, body {
   15% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.15); }
   30% { transform: translateX(-50%) translateY(0) scale(1); }
   100% { opacity: 0; transform: translateX(-50%) translateY(-50px) scale(1); }
+}
+
+/* --- Countdown overlay --- */
+
+#countdown {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 120px;
+  font-weight: 800;
+  font-style: italic;
+  color: #ffd75e;
+  text-shadow: 0 0 30px rgba(255, 180, 40, 0.8), 0 4px 10px rgba(0, 0, 0, 0.8);
+}
+
+#countdown.pop {
+  animation: countdown-pop 0.9s ease-out forwards;
+}
+
+@keyframes countdown-pop {
+  0% { opacity: 0; transform: translateX(-50%) scale(2.2); }
+  25% { opacity: 1; transform: translateX(-50%) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0.2; transform: translateX(-50%) scale(0.85); }
+}
+
+/* --- Finish overlay --- */
+
+#finish-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+#finish-overlay[hidden] {
+  display: none;
+}
+
+#finish-panel {
+  min-width: 320px;
+  padding: 28px 36px;
+  text-align: center;
+  animation: finish-in 0.5s ease-out;
+}
+
+@keyframes finish-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+#finish-title {
+  font-size: 48px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 6px;
+  color: #ffd75e;
+  text-shadow: 0 0 20px rgba(255, 180, 40, 0.7);
+  margin-bottom: 18px;
+}
+
+.finish-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-size: 17px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.finish-row span:first-child {
+  opacity: 0.7;
+}
+
+.finish-row span:last-child {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#restart-button {
+  pointer-events: auto;
+  margin-top: 22px;
+  padding: 10px 32px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #0b0e14;
+  background: #ffb347;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.1s, background 0.15s;
+}
+
+#restart-button:hover {
+  background: #ffc670;
+  transform: scale(1.04);
 }

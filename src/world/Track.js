@@ -17,6 +17,7 @@ export class Track {
     this.roadMesh = this._buildRoadMesh();
     this.barriers = this._buildBarriers();
     this.centerLine = this._buildCenterLine();
+    this.startLine = this._buildStartLine();
   }
 
   _buildCurve() {
@@ -137,10 +138,26 @@ export class Track {
     return line;
   }
 
+  _buildStartLine() {
+    const geometry = new THREE.PlaneGeometry(ROAD_WIDTH, 1.4);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const line = new THREE.Mesh(geometry, material);
+    const start = this.getStartTransform();
+    line.position.set(start.x, 0.03, start.z);
+    line.rotation.y = start.heading;
+    return line;
+  }
+
   addTo(scene) {
     scene.add(this.roadMesh);
     scene.add(this.barriers);
     scene.add(this.centerLine);
+    scene.add(this.startLine);
   }
 
   // Position and heading at the start of the loop, for spawning the car on the road.
@@ -149,5 +166,16 @@ export class Track {
     const tangent = this.curve.getTangentAt(0);
     const heading = Math.atan2(tangent.x, tangent.z);
     return { x: point.x, z: point.z, heading };
+  }
+
+  // Plain {x, z} samples along the spline for race logic and the minimap —
+  // consumers stay free of Three.js types.
+  getSampledPositions(count) {
+    const positions = [];
+    for (let i = 0; i < count; i++) {
+      const p = this.curve.getPointAt(i / count);
+      positions.push({ x: p.x, z: p.z });
+    }
+    return positions;
   }
 }

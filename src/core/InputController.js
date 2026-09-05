@@ -31,7 +31,8 @@ export class InputController {
       backward: this.keys.has('KeyS') || this.keys.has('ArrowDown'),
       left: this.keys.has('KeyA') || this.keys.has('ArrowLeft'),
       right: this.keys.has('KeyD') || this.keys.has('ArrowRight'),
-      handbrake: this.keys.has('Space'), // placeholder input for future drift mechanics
+      handbrake: this.keys.has('Space'),
+      restart: this.keys.has('KeyR'),
     };
   }
 

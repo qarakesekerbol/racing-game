@@ -1,25 +1,95 @@
-// Minimal DOM-based HUD: speed, FPS, total points, and the drift indicator.
-// This is the only place where m/s is converted for display.
+import { CONFIG } from '../core/config.js';
+
+// DOM-based HUD: speedometer, lap/timer boxes, position badge, drift indicator,
+// countdown and finish overlays. The only place where seconds/m/s become display text.
+
+const SPEEDO_CIRCUMFERENCE = 263.9; // 2 * PI * r=42, must match style.css
+const SPEEDO_SPAN = 0.75; // 270-degree arc
 
 export class HUD {
   constructor() {
     this.speedElement = document.getElementById('speed-value');
+    this.speedoArc = document.getElementById('speedo-arc');
     this.fpsElement = document.getElementById('fps-value');
     this.totalElement = document.getElementById('total-value');
+    this.lapElement = document.getElementById('lap-value');
+    this.timeElement = document.getElementById('time-value');
+    this.bestElement = document.getElementById('best-value');
     this.driftElement = document.getElementById('hud-drift');
     this.driftScoreElement = document.getElementById('drift-score');
     this.driftComboElement = document.getElementById('drift-combo');
     this.bankElement = document.getElementById('drift-bank');
+    this.countdownElement = document.getElementById('countdown');
+    this.finishOverlay = document.getElementById('finish-overlay');
+    this.finishTimeElement = document.getElementById('finish-time');
+    this.finishBestElement = document.getElementById('finish-best');
 
+    this.onRestart = null;
+    document.getElementById('restart-button').addEventListener('click', () => {
+      if (this.onRestart) this.onRestart();
+    });
+
+    this._maxKmh = CONFIG.car.maxSpeed * 3.6 * CONFIG.drift.boostMaxSpeedFactor;
     this._bankTimeout = 0;
+    this._lastCountdown = null;
   }
 
   setSpeedKmh(kmh) {
-    this.speedElement.textContent = Math.round(Math.abs(kmh));
+    const abs = Math.abs(kmh);
+    this.speedElement.textContent = Math.round(abs);
+    const fraction = Math.min(1, abs / this._maxKmh);
+    this.speedoArc.style.strokeDashoffset =
+      SPEEDO_CIRCUMFERENCE * (1 - SPEEDO_SPAN * fraction);
   }
 
   setFps(fps) {
     this.fpsElement.textContent = fps;
+  }
+
+  setLap(current, total) {
+    this.lapElement.textContent = `${current}/${total}`;
+  }
+
+  setRaceTime(seconds) {
+    this.timeElement.textContent = formatTime(seconds);
+  }
+
+  setBestLap(seconds) {
+    this.bestElement.textContent = seconds === null ? '--:--.---' : formatTime(seconds);
+  }
+
+  setPosition(rank, suffix) {
+    document.getElementById('position-value').textContent = rank;
+    document.getElementById('position-suffix').textContent = suffix;
+  }
+
+  // display: '3' | '2' | '1' | 'GO!' | null
+  setCountdown(display) {
+    if (display === this._lastCountdown) return;
+    this._lastCountdown = display;
+
+    const el = this.countdownElement;
+    if (display === null) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.textContent = display;
+    // Restart the pop animation on every value change.
+    el.classList.remove('pop');
+    void el.offsetWidth;
+    el.classList.add('pop');
+  }
+
+  showFinish(totalSeconds, bestLapSeconds) {
+    this.finishTimeElement.textContent = formatTime(totalSeconds);
+    this.finishBestElement.textContent =
+      bestLapSeconds === null ? '--:--.---' : formatTime(bestLapSeconds);
+    this.finishOverlay.hidden = false;
+  }
+
+  hideFinish() {
+    this.finishOverlay.hidden = true;
   }
 
   updateDrift(state) {
@@ -38,12 +108,17 @@ export class HUD {
     }
   }
 
+  resetDriftDisplay() {
+    this.totalElement.textContent = '0';
+    this.driftElement.hidden = true;
+    this.bankElement.hidden = true;
+  }
+
   _showBank(points) {
     const el = this.bankElement;
     el.textContent = `+${points}`;
     el.hidden = false;
 
-    // Restart the CSS animation even if one is already playing.
     el.classList.remove('bank-anim');
     void el.offsetWidth;
     el.classList.add('bank-anim');
@@ -54,4 +129,12 @@ export class HUD {
       el.classList.remove('bank-anim');
     }, 1400);
   }
+}
+
+function formatTime(seconds) {
+  const total = Math.max(0, seconds);
+  const minutes = Math.floor(total / 60);
+  const secs = Math.floor(total % 60);
+  const millis = Math.floor((total % 1) * 1000);
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
 }
