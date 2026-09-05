@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CarPhysics } from '../core/CarPhysics.js';
+import { CarLights } from './CarLights.js';
 import { CONFIG } from '../core/config.js';
 
 // Visual representation of a car built from primitives.
@@ -53,12 +54,20 @@ function getBodyMaterial(color) {
 }
 
 export class Car {
-  constructor({ color = '#d1263a' } = {}) {
+  constructor({ color = '#d1263a', isPlayer = false } = {}) {
     this.physics = new CarPhysics();
     this.mesh = new THREE.Group();
     this.color = color;
+    this.isPlayer = isPlayer;
     this._roll = 0; // smoothed body roll, radians
+    this._braking = false;
     this._buildMesh();
+    this.lights = new CarLights({ carMesh: this.mesh, isPlayer });
+  }
+
+  // on: headlights active; intensity: 0..1 fade during a time-of-day transition
+  updateLights(on, intensity) {
+    this.lights.update(on, this._braking, intensity);
   }
 
   _buildMesh() {
@@ -119,6 +128,9 @@ export class Car {
   update(dt, input) {
     this.physics.update(dt, input);
     const state = this.physics.getState();
+
+    // Brake lights: pressing back while still rolling forward, or handbrake.
+    this._braking = (input.backward && state.speed > 0.5) || input.handbrake;
 
     this.syncTransform();
 

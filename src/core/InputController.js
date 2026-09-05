@@ -37,6 +37,8 @@ export class InputController {
         this.keys.has('ShiftLeft') ||
         this.keys.has('ShiftRight') ||
         this.keys.has('KeyE'),
+      cycleTimeOfDay: this.keys.has('KeyN'),
+      toggleDebug: this.keys.has('KeyF'),
     };
   }
 

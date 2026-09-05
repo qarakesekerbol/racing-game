@@ -13,7 +13,7 @@ function getShared() {
   // Hue cycles with world position and time in the shader, so each box shimmers
   // without needing a texture or per-box material.
   const boxMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uBoost: { value: 1 } },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
       varying vec3 vPos;
@@ -25,6 +25,7 @@ function getShared() {
     `,
     fragmentShader: /* glsl */ `
       uniform float uTime;
+      uniform float uBoost;
       varying vec3 vNormal;
       varying vec3 vPos;
 
@@ -38,7 +39,8 @@ function getShared() {
         // cheap rim light so the cube reads as 3D without a lit material
         float rim = pow(1.0 - abs(vNormal.z), 2.0);
         vec3 color = mix(base, vec3(1.0), rim * 0.5);
-        gl_FragColor = vec4(color, 0.92);
+        // uBoost lifts the box above the bloom threshold at night.
+        gl_FragColor = vec4(color * uBoost, 0.92);
       }
     `,
     transparent: true,
@@ -81,6 +83,12 @@ export class Pickup {
 
   static updateSharedTime(elapsed) {
     getShared().boxMaterial.uniforms.uTime.value = elapsed;
+  }
+
+  static setEmissiveBoost(boost) {
+    // Damped: the raw night boost drives these fully into bloom clipping and
+    // they read as white blobs instead of colored boxes.
+    getShared().boxMaterial.uniforms.uBoost.value = 1 + (boost - 1) * 0.35;
   }
 
   update(dt, elapsed) {

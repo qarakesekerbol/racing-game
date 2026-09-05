@@ -12,6 +12,17 @@
     <div id="hud">
       <div id="hud-fps" class="panel"><span id="fps-value">0</span> <span class="unit">fps</span></div>
 
+      <div id="debug-panel" class="panel" hidden>
+        <div class="debug-row"><span>FPS</span><span id="dbg-fps">0</span></div>
+        <div class="debug-row"><span>Frame</span><span id="dbg-frame">0 ms</span></div>
+        <div class="debug-row"><span>Draw calls</span><span id="dbg-calls">0</span></div>
+        <div class="debug-row"><span>Triangles</span><span id="dbg-tris">0</span></div>
+        <div class="debug-row"><span>Lights</span><span id="dbg-lights">0</span></div>
+        <div class="debug-row"><span>Programs</span><span id="dbg-programs">0</span></div>
+        <div class="debug-row"><span>Quality</span><span id="dbg-quality">medium</span></div>
+        <div class="debug-row"><span>Bloom</span><span id="dbg-bloom">off</span></div>
+      </div>
+
       <div id="hud-item" class="panel">
         <div id="item-icon">—</div>
         <div id="item-text">
@@ -63,6 +74,8 @@
       <div id="drift-bank" hidden>+0</div>
 
       <div id="countdown" hidden>3</div>
+
+      <div id="tod-indicator" class="panel" hidden><span id="tod-label">Day</span></div>
 
       <div id="finish-overlay" hidden>
         <div id="finish-panel" class="panel">

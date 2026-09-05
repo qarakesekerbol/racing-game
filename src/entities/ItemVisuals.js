@@ -43,6 +43,11 @@ export class ItemVisuals {
     this._rockets = new Map(); // rocket id -> mesh
   }
 
+  // Shield bubbles read as faint in daylight and should glow at night.
+  setEmissiveBoost(boost) {
+    this._emissiveBoost = boost;
+  }
+
   // cars: [{ id, physics }]
   update(dt, elapsed, itemManager, cars) {
     this._updateShields(elapsed, itemManager, cars);
@@ -73,8 +78,10 @@ export class ItemVisuals {
       mesh.scale.setScalar(pulse);
       // Flash faster as it runs out.
       const remaining = state.shieldTimer;
+      const boost = this._emissiveBoost ?? 1;
       mesh.material.opacity =
-        remaining < 2 ? 0.1 + Math.abs(Math.sin(elapsed * 12)) * 0.22 : 0.22;
+        (remaining < 2 ? 0.1 + Math.abs(Math.sin(elapsed * 12)) * 0.22 : 0.22) *
+        Math.min(2, boost);
     }
   }
 

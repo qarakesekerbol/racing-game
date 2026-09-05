@@ -1,8 +1,12 @@
 import { Game } from './src/core/Game.js';
+import { CONFIG } from './src/core/config.js';
 
 const canvas = document.getElementById('app');
 const game = new Game(canvas);
-window.game = game; // console access for debugging
+// Console access for debugging and live tuning: most CONFIG values are read
+// every frame, so editing them in the console takes effect immediately.
+window.game = game;
+window.CONFIG = CONFIG;
 
 // Debug autopilot for visual testing without a keyboard: open /?demo
 // Accelerates, then kicks into a handbrake drift and holds the slide.

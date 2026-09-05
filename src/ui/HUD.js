@@ -147,6 +147,42 @@ export class HUD {
     }
   }
 
+  toggleDebug() {
+    const panel = document.getElementById('debug-panel');
+    panel.hidden = !panel.hidden;
+    return !panel.hidden;
+  }
+
+  get debugVisible() {
+    return !document.getElementById('debug-panel').hidden;
+  }
+
+  setDebugStats({ fps, frameMs, calls, triangles, lights, programs, quality, bloom }) {
+    document.getElementById('dbg-fps').textContent = fps;
+    document.getElementById('dbg-frame').textContent = `${frameMs.toFixed(2)} ms`;
+    document.getElementById('dbg-calls').textContent = calls;
+    document.getElementById('dbg-tris').textContent = triangles.toLocaleString('en-US');
+    document.getElementById('dbg-lights').textContent = lights;
+    document.getElementById('dbg-programs').textContent = programs;
+    document.getElementById('dbg-quality').textContent = quality;
+    document.getElementById('dbg-bloom').textContent = bloom ? 'on' : 'off';
+  }
+
+  // Flash the new time-of-day mode in the middle of the screen.
+  showTimeOfDay(label) {
+    const el = document.getElementById('tod-indicator');
+    document.getElementById('tod-label').textContent = label;
+    el.hidden = false;
+    el.style.animation = 'none';
+    void el.offsetWidth; // restart the fade
+    el.style.animation = '';
+
+    clearTimeout(this._todTimeout);
+    this._todTimeout = setTimeout(() => {
+      el.hidden = true;
+    }, 1600);
+  }
+
   // item: 'nitro' | 'shield' | 'oil' | 'rocket' | 'slowdown' | null
   setItem(item) {
     if (item === this._lastItem) return;

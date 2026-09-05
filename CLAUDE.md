@@ -38,10 +38,20 @@ style.css     # Global + HUD styles
 - **Units.** Distances in meters, speed stored internally in m/s, converted to km/h only
   at the HUD display boundary.
 
+## Lighting
+
+`src/world/TimeOfDay.js` owns all lighting/atmosphere values (day/sunset/night)
+and cross-fades between them. Anything that reacts to lighting (car headlights,
+street lamps, emissive boost, bloom strength) reads `timeOfDay.getState()` each
+frame rather than checking a mode name, so transitions stay smooth.
+
+Real lights are strictly budgeted: sun + ambient, two SpotLights for the player
+only, and a fixed pool of street-lamp PointLights re-parented to the nearest
+lamps. Everything else is emissive material plus bloom.
+
 ## Planned extension points (design with these in mind, don't build yet)
 
-- Night mode (lighting/skybox swap)
-- Obstacles and power-ups (new files under `src/entities/`)
+- Additional tracks / track selection
 
 ## Running
 

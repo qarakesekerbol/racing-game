@@ -53,6 +53,34 @@ html, body {
   padding: 4px 10px;
 }
 
+/* --- Debug panel (F key) --- */
+
+#debug-panel {
+  position: absolute;
+  top: 118px; /* below the item slot */
+  left: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: Consolas, 'Courier New', monospace;
+  min-width: 168px;
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  line-height: 1.55;
+}
+
+.debug-row span:first-child {
+  opacity: 0.6;
+}
+
+.debug-row span:last-child {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- Item slot (top-left, under FPS) --- */
 
 #hud-item {
@@ -309,6 +337,28 @@ html, body {
   25% { opacity: 1; transform: translateX(-50%) scale(1); }
   80% { opacity: 1; }
   100% { opacity: 0.2; transform: translateX(-50%) scale(0.85); }
+}
+
+/* --- Time-of-day indicator --- */
+
+#tod-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 10px 26px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  animation: tod-fade 1.6s ease-out forwards;
+}
+
+@keyframes tod-fade {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+  18% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -58%) scale(1); }
 }
 
 /* --- Finish overlay --- */

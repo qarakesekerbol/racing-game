@@ -7,16 +7,21 @@ import { Collisions } from './Collisions.js';
 import { ItemManager } from './ItemManager.js';
 import { PickupManager } from './PickupManager.js';
 import { ObstacleManager } from './ObstacleManager.js';
-import { CONFIG } from './config.js';
+import { CONFIG, getQuality } from './config.js';
 import { Car } from '../entities/Car.js';
 import { AICar } from '../entities/AICar.js';
 import { ParticleField } from '../entities/ParticleField.js';
+import { Pickup } from '../entities/Pickup.js';
 import { ItemVisuals } from '../entities/ItemVisuals.js';
 import { SkidMarks } from '../entities/SkidMarks.js';
 import { TireSmoke } from '../entities/TireSmoke.js';
+import { PostProcessing } from './PostProcessing.js';
 import { Track } from '../world/Track.js';
 import { Ground } from '../world/Ground.js';
 import { Lighting } from '../world/Lighting.js';
+import { Sky } from '../world/Sky.js';
+import { TimeOfDay } from '../world/TimeOfDay.js';
+import { StreetLamps } from '../world/StreetLamps.js';
 import { HUD } from '../ui/HUD.js';
 import { Minimap } from '../ui/Minimap.js';
 
@@ -76,8 +81,15 @@ export class Game {
     this.particles.addTo(this.scene);
     this.itemVisuals = new ItemVisuals({ scene: this.scene, particles: this.particles });
 
+    this.postProcessing = new PostProcessing({
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+    });
+
     this._elapsed = 0;
     this._useItemHeld = false;
+    this._nightHeld = false;
 
     this.minimap = new Minimap(document.getElementById('minimap'), this._trackSamples);
 
@@ -96,10 +108,23 @@ export class Game {
 
   _initRenderer() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Manual reset so the debug panel can report totals across every pass
+    // (the composer renders several passes per frame).
+    this.renderer.info.autoReset = false;
+    this._appliedPixelRatio = 0;
+    this._applyPixelRatio();
+  }
+
+  _applyPixelRatio() {
+    const cap = getQuality().pixelRatioCap;
+    const ratio = Math.min(window.devicePixelRatio, cap);
+    if (ratio === this._appliedPixelRatio) return;
+    this._appliedPixelRatio = ratio;
+    this.renderer.setPixelRatio(ratio);
+    this.postProcessing?.setSize(window.innerWidth, window.innerHeight);
   }
 
   _initScene() {
@@ -123,12 +148,24 @@ export class Game {
     this.track = new Track();
     this.track.addTo(this.scene);
 
+    this.sky = new Sky();
+    this.sky.addTo(this.scene);
+
+    this.streetLamps = new StreetLamps({ track: this.track });
+    this.streetLamps.addTo(this.scene);
+
+    this.timeOfDay = new TimeOfDay({
+      scene: this.scene,
+      lighting: this.lighting,
+      sky: this.sky,
+    });
+
     // One shared sample array for race logic, AI drivers, collisions, minimap.
     this._trackSamples = this.track.getSampledPositions(TRACK_SAMPLE_COUNT);
   }
 
   _initEntities() {
-    this.car = new Car();
+    this.car = new Car({ isPlayer: true });
     this.scene.add(this.car.mesh);
 
     this.aiCars = [];
@@ -190,6 +227,21 @@ export class Game {
     // Edge-detect R so holding the key doesn't restart every frame.
     if (rawInput.restart && !this._restartHeld) this._restartRace();
     this._restartHeld = rawInput.restart;
+
+    // N cycles day -> sunset -> night.
+    if (rawInput.cycleTimeOfDay && !this._nightHeld) {
+      this.hud.showTimeOfDay(this.timeOfDay.cycle());
+    }
+    this._nightHeld = rawInput.cycleTimeOfDay;
+
+    // F toggles the debug panel.
+    if (rawInput.toggleDebug && !this._debugHeld) this.hud.toggleDebug();
+    this._debugHeld = rawInput.toggleDebug;
+
+    this.renderer.info.reset();
+    this._applyPixelRatio();
+    this.timeOfDay.update(dt);
+    this._updateLighting(dt);
 
     this._elapsed += dt;
 
@@ -254,8 +306,41 @@ export class Game {
     const nitroFov = playerItems.nitroTimer > 0 ? CONFIG.items.nitro.fovBoost : 0;
     this.chaseCamera.update(dt, this.car.mesh, state, nitroFov);
 
-    this.renderer.render(this.scene, this.camera);
+    this.postProcessing.render();
     this._updateHud(dt, state);
+  }
+
+  // Applies the current time-of-day state to everything that reacts to it:
+  // car lights, street lamps, sky, emissive strength and bloom.
+  _updateLighting(dt) {
+    const state = this.timeOfDay.getState();
+
+    // How "night-like" the current blend is, derived from ambient darkness so
+    // it moves smoothly during a transition rather than flipping.
+    const dayAmbient = CONFIG.timeOfDay.modes.day.ambientIntensity;
+    const nightAmbient = CONFIG.timeOfDay.modes.night.ambientIntensity;
+    const nightFactor = THREE.MathUtils.clamp(
+      (dayAmbient - state.ambientIntensity) / (dayAmbient - nightAmbient),
+      0,
+      1
+    );
+    this._nightFactor = nightFactor;
+
+    // Single shadow-casting light, with its small frustum kept over the player.
+    this.lighting.applyQuality();
+    this.lighting.setDirection(state.sunDirection);
+    this.lighting.follow(this.car.mesh.position);
+
+    this.car.updateLights(state.headlights, nightFactor);
+    for (const aiCar of this.aiCars) aiCar.updateLights(state.headlights, nightFactor);
+
+    this.ground.setNightFactor(nightFactor);
+    this.streetLamps.update(this.camera.position, nightFactor);
+    this.sky.update(dt, this._elapsed, this.camera.position);
+    this.particles.setEmissiveBoost(state.emissiveBoost);
+    Pickup.setEmissiveBoost(state.emissiveBoost);
+    this.itemVisuals.setEmissiveBoost(state.emissiveBoost);
+    this.postProcessing.setNightFactor(nightFactor);
   }
 
   // Shape shared by the pickup/obstacle/item systems: every car with its
@@ -394,9 +479,29 @@ export class Game {
     this._fpsTime += dt;
     this._fpsFrames += 1;
     if (this._fpsTime >= 0.25) {
-      this.hud.setFps(Math.round(this._fpsFrames / this._fpsTime));
+      this._lastFps = Math.round(this._fpsFrames / this._fpsTime);
+      this._lastFrameMs = (this._fpsTime / this._fpsFrames) * 1000;
+      this.hud.setFps(this._lastFps);
       this._fpsTime = 0;
       this._fpsFrames = 0;
+
+      if (this.hud.debugVisible) {
+        const info = this.renderer.info;
+        let lights = 0;
+        this.scene.traverse((o) => {
+          if (o.isLight && o.visible) lights++;
+        });
+        this.hud.setDebugStats({
+          fps: this._lastFps,
+          frameMs: this._lastFrameMs,
+          calls: info.render.calls,
+          triangles: info.render.triangles,
+          lights,
+          programs: info.programs?.length ?? 0,
+          quality: CONFIG.quality.level,
+          bloom: this.postProcessing.active,
+        });
+      }
     }
   }
 
@@ -404,6 +509,7 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
 }
 

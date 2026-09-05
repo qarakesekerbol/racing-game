@@ -1,6 +1,13 @@
 // Central tuning config. All gameplay/visual "feel" numbers live here.
 // Ranges are [min, max] pairs picked randomly per particle.
 
+// Active quality preset. Read fresh each frame so changing
+// CONFIG.quality.level at runtime takes effect immediately.
+export function getQuality() {
+  const q = CONFIG.quality;
+  return q.levels[q.level] ?? q.levels.medium;
+}
+
 export const CONFIG = {
   car: {
     maxSpeed: 42, // m/s (~151 km/h)
@@ -186,6 +193,153 @@ export const CONFIG = {
     },
     // AI behavior
     aiUseDelay: [1, 4], // seconds before an AI fires its item
+  },
+
+  // Quality scales the three things that actually cost frames: shadow map
+  // resolution, bloom, and how many real lights exist. Change `level` here or
+  // at runtime via CONFIG.quality.level (read every frame).
+  quality: {
+    level: 'medium', // 'low' | 'medium' | 'high'
+    levels: {
+      low: {
+        shadowMapSize: 1024,
+        shadowRadius: 55, // half-size of the shadow frustum around the player
+        maxLampLights: 0, // emissive lamp heads only
+        bloom: false,
+        bloomResolutionScale: 0.5,
+        pixelRatioCap: 1,
+      },
+      medium: {
+        shadowMapSize: 1536,
+        shadowRadius: 70,
+        maxLampLights: 4,
+        bloom: true,
+        bloomResolutionScale: 0.5, // half-res bloom: most of the look, half the cost
+        pixelRatioCap: 1.5,
+      },
+      high: {
+        shadowMapSize: 2048,
+        shadowRadius: 90,
+        maxLampLights: 6,
+        bloom: true,
+        bloomResolutionScale: 1,
+        pixelRatioCap: 2,
+      },
+    },
+  },
+
+  timeOfDay: {
+    startMode: 'day', // 'day' | 'sunset' | 'night'
+    transitionSeconds: 2, // cross-fade time between modes
+    autoCycle: false, // slowly advance modes during the race
+    autoCycleSeconds: 45, // time spent in each mode when autoCycle is on
+    modes: {
+      day: {
+        label: 'Day',
+        sunDirection: [60, 90, -40], // light position; direction is toward origin
+        sunColor: 0xfff4e0,
+        sunIntensity: 1.6,
+        ambientColor: 0xffffff,
+        ambientIntensity: 0.55,
+        skyTop: 0x5aa0f0,
+        skyBottom: 0xbfe0ff,
+        fogColor: 0x8fc7ff,
+        fogNear: 150,
+        fogFar: 450,
+        shadowOpacity: 1, // scales shadow darkness via light intensity split
+        starOpacity: 0,
+        headlights: false,
+        emissiveBoost: 1,
+      },
+      sunset: {
+        label: 'Sunset',
+        sunDirection: [110, 18, -30], // low sun = long shadows
+        sunColor: 0xff9a3c,
+        sunIntensity: 1.5,
+        ambientColor: 0xff9d6e,
+        ambientIntensity: 0.38,
+        skyTop: 0x2a3d7a,
+        skyBottom: 0xff8c54,
+        fogColor: 0xff9a5c,
+        fogNear: 90,
+        fogFar: 340,
+        shadowOpacity: 1,
+        starOpacity: 0.15,
+        headlights: true,
+        emissiveBoost: 1.6,
+      },
+      night: {
+        label: 'Night',
+        groundTint: 0x27384f, // multiplied into ground/grass so it reads dark blue-green
+        sunDirection: [-50, 80, 40], // moon
+        sunColor: 0x9fb4ff,
+        sunIntensity: 0.32,
+        ambientColor: 0x2a3560,
+        ambientIntensity: 0.22,
+        skyTop: 0x03060f,
+        skyBottom: 0x0e1730,
+        fogColor: 0x070b18,
+        fogNear: 45,
+        fogFar: 190, // strong fog
+        shadowOpacity: 0.5,
+        starOpacity: 1,
+        headlights: true,
+        emissiveBoost: 2.6,
+      },
+    },
+  },
+
+  lights: {
+    headlights: {
+      // Real SpotLights only for the player; every car (including the player)
+      // also gets a cheap additive ground decal so beams read on the road.
+      playerSpotIntensity: 30,
+      distance: 38,
+      angle: 0.34, // narrower cone, radians
+      penumbra: 0.55,
+      color: 0xfff0d0,
+      offsetX: 0.6, // lamp position on the car
+      offsetY: 0.42, // bumper height, not roof height
+      offsetZ: 2.1,
+      // Ground light pool (fake beam on the road surface)
+      decalLength: 15,
+      decalWidth: 5.4,
+      decalForward: 8, // meters ahead of the car
+      decalOpacity: 0.38,
+      decalOpacityAI: 0.26,
+    },
+    tailLights: {
+      color: 0xff2020,
+      idleIntensity: 0.35, // emissive strength when coasting
+      brakeIntensity: 1.6,
+      offsetX: 0.62,
+      offsetY: 0.62,
+      offsetZ: -2.1,
+      size: 0.16,
+    },
+    streetLamps: {
+      count: 14, // sparser: they were visually noisy in daylight
+      side: 1, // 1 = left edge, -1 = right, alternates automatically
+      alternateSides: true,
+      lateralOffset: 7.4, // meters from center line (outside the barrier)
+      poleHeight: 4.6, // shorter, less obtrusive
+      poleRadius: 0.09,
+      headColor: 0xffe6a8,
+      // Pooled PointLights; the actual cap comes from the quality level.
+      lightIntensity: 26,
+      lightDistance: 26,
+      lightHeight: 4.3,
+      emissiveIntensity: 1.5,
+    },
+  },
+
+  bloom: {
+    enabled: true, // master switch; quality level can still disable it
+    strength: 0.28, // mild: only the brightest cores should glow
+    radius: 0.42,
+    threshold: 0.88, // high threshold keeps lamps/pickups from blowing out
+    nightStrength: 0.42,
+    dayEnabled: false, // no bloom in daylight — nothing needs it there
   },
 
   obstacles: {

@@ -27,10 +27,11 @@ export class ParticleField {
     geometry.setAttribute('aProgress', new THREE.BufferAttribute(this._progress, 1));
     geometry.setAttribute('aSize', new THREE.BufferAttribute(this._sizes, 1));
 
-    const material = new THREE.ShaderMaterial({
+    this._material = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      uniforms: { uBoost: { value: 1 } },
       vertexShader: /* glsl */ `
         attribute float aProgress;
         attribute float aSize;
@@ -46,17 +47,19 @@ export class ParticleField {
         }
       `,
       fragmentShader: /* glsl */ `
+        uniform float uBoost;
         varying float vProgress;
         varying vec3 vColor;
         void main() {
           float dist = length(gl_PointCoord - vec2(0.5));
           float alpha = smoothstep(0.5, 0.05, dist) * vProgress;
-          gl_FragColor = vec4(vColor, alpha);
+          // Brighter at night so effects read against a dark scene (and bloom).
+          gl_FragColor = vec4(vColor * uBoost, alpha);
         }
       `,
     });
 
-    this.points = new THREE.Points(geometry, material);
+    this.points = new THREE.Points(geometry, this._material);
     this.points.frustumCulled = false;
   }
 
@@ -126,6 +129,10 @@ export class ParticleField {
       attrs.aSize.needsUpdate = true;
       attrs.aColor.needsUpdate = true;
     }
+  }
+
+  setEmissiveBoost(boost) {
+    this._material.uniforms.uBoost.value = boost;
   }
 
   addTo(scene) {
