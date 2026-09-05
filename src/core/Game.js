@@ -4,9 +4,14 @@ import { ChaseCamera } from './ChaseCamera.js';
 import { RaceManager } from './RaceManager.js';
 import { AIDriver } from './AIDriver.js';
 import { Collisions } from './Collisions.js';
+import { ItemManager } from './ItemManager.js';
+import { PickupManager } from './PickupManager.js';
+import { ObstacleManager } from './ObstacleManager.js';
 import { CONFIG } from './config.js';
 import { Car } from '../entities/Car.js';
 import { AICar } from '../entities/AICar.js';
+import { ParticleField } from '../entities/ParticleField.js';
+import { ItemVisuals } from '../entities/ItemVisuals.js';
 import { SkidMarks } from '../entities/SkidMarks.js';
 import { TireSmoke } from '../entities/TireSmoke.js';
 import { Track } from '../world/Track.js';
@@ -50,6 +55,29 @@ export class Game {
     for (const aiCar of this.aiCars) this.raceManager.registerCar(aiCar.id);
 
     this.collisions = new Collisions({ samples: this._trackSamples });
+
+    this.itemManager = new ItemManager({ samples: this._trackSamples });
+    this.itemManager.registerCar(PLAYER_ID);
+    for (const aiCar of this.aiCars) this.itemManager.registerCar(aiCar.id);
+
+    this.pickupManager = new PickupManager({
+      track: this.track,
+      itemManager: this.itemManager,
+    });
+    this.pickupManager.addTo(this.scene);
+
+    this.obstacleManager = new ObstacleManager({
+      track: this.track,
+      samples: this._trackSamples,
+    });
+    this.obstacleManager.addTo(this.scene);
+
+    this.particles = new ParticleField();
+    this.particles.addTo(this.scene);
+    this.itemVisuals = new ItemVisuals({ scene: this.scene, particles: this.particles });
+
+    this._elapsed = 0;
+    this._useItemHeld = false;
 
     this.minimap = new Minimap(document.getElementById('minimap'), this._trackSamples);
 
@@ -163,9 +191,30 @@ export class Game {
     if (rawInput.restart && !this._restartHeld) this._restartRace();
     this._restartHeld = rawInput.restart;
 
+    this._elapsed += dt;
+
     // Controls are dead until "GO!" and after the finish line.
     const locked = this.raceManager.controlsLocked || this.raceManager.state === 'finished';
     const input = locked ? NEUTRAL_INPUT : rawInput;
+
+    // Effects are re-applied from scratch every frame, so a modifier only lasts
+    // as long as its source keeps setting it.
+    const effectCars = this._collectEffectCars();
+    for (const car of effectCars) car.physics.clearModifiers();
+
+    const events = [];
+    events.push(...this.pickupManager.update(dt, this._elapsed, effectCars));
+    events.push(...this.obstacleManager.update(dt, this._elapsed, effectCars));
+
+    // Player fires an item on the rising edge of Shift/E.
+    if (!locked && rawInput.useItem && !this._useItemHeld) {
+      const event = this.itemManager.useItem(PLAYER_ID, effectCars);
+      if (event) events.push(event);
+    }
+    this._useItemHeld = rawInput.useItem;
+
+    if (!locked) events.push(...this.itemManager.updateAIUsage(dt, effectCars));
+    events.push(...this.itemManager.update(dt, effectCars));
 
     this.car.update(dt, input);
 
@@ -194,12 +243,46 @@ export class Game {
 
     this.raceManager.update(dt, this._collectCarsData());
 
+    this.itemVisuals.update(dt, this._elapsed, this.itemManager, effectCars);
+    this.itemVisuals.handleEvents(events, effectCars);
+    this.particles.update(dt);
+
     const state = this.car.physics.getState();
     this._updateDriftEffects(dt, state);
-    this.chaseCamera.update(dt, this.car.mesh, state);
+
+    const playerItems = this.itemManager.getCarItems(PLAYER_ID);
+    const nitroFov = playerItems.nitroTimer > 0 ? CONFIG.items.nitro.fovBoost : 0;
+    this.chaseCamera.update(dt, this.car.mesh, state, nitroFov);
 
     this.renderer.render(this.scene, this.camera);
     this._updateHud(dt, state);
+  }
+
+  // Shape shared by the pickup/obstacle/item systems: every car with its
+  // physics, race rank and progress.
+  _collectEffectCars() {
+    const rankById = new Map();
+    this.raceManager.getRankings().forEach((entry, i) => rankById.set(entry.id, i + 1));
+
+    const cars = [
+      {
+        id: PLAYER_ID,
+        physics: this.car.physics,
+        isPlayer: true,
+        rank: rankById.get(PLAYER_ID) ?? 1,
+        progress: this.raceManager.getCarState(PLAYER_ID).progress,
+      },
+    ];
+    for (const aiCar of this.aiCars) {
+      cars.push({
+        id: aiCar.id,
+        physics: aiCar.physics,
+        isPlayer: false,
+        rank: rankById.get(aiCar.id) ?? 1,
+        progress: this.raceManager.getCarState(aiCar.id).progress,
+      });
+    }
+    return cars;
   }
 
   _restartRace() {
@@ -207,10 +290,16 @@ export class Game {
     this._placeCarsOnGrid();
     this.raceManager.primeCarPositions(this._collectCarsData());
     this.collisions.reset();
+    this.itemManager.reset();
+    this.pickupManager.reset();
+    this.obstacleManager.reset();
+    this.itemVisuals.reset();
     this.skidMarks.endTrail();
     this.hud.hideFinish();
     this.hud.resetDriftDisplay();
+    this.hud.setItem(null);
     this._finishShown = false;
+    this._useItemHeld = false;
   }
 
   _buildStandings() {
@@ -251,6 +340,7 @@ export class Game {
     this.hud.setSpeedKmh(state.speedKmh);
     this.hud.updateDrift(state);
     this.hud.setCountdown(this.raceManager.getCountdownDisplay());
+    this.hud.setItem(this.itemManager.getCarItems(PLAYER_ID).item);
 
     const race = this.raceManager.getCarState(PLAYER_ID);
     this.hud.setLap(

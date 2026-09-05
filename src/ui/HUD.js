@@ -29,6 +29,12 @@ export class HUD {
       if (this.onRestart) this.onRestart();
     });
 
+    this.itemPanel = document.getElementById('hud-item');
+    this.itemIcon = document.getElementById('item-icon');
+    this.itemName = document.getElementById('item-name');
+    this._lastItem = undefined;
+    this._itemAnimTimeout = 0;
+
     this._maxKmh = CONFIG.car.maxSpeed * 3.6 * CONFIG.drift.boostMaxSpeedFactor;
     this._bankTimeout = 0;
     this._lastCountdown = null;
@@ -141,6 +147,29 @@ export class HUD {
     }
   }
 
+  // item: 'nitro' | 'shield' | 'oil' | 'rocket' | 'slowdown' | null
+  setItem(item) {
+    if (item === this._lastItem) return;
+    const gained = item !== null && this._lastItem !== item;
+    this._lastItem = item;
+
+    const info = ITEM_DISPLAY[item] ?? { icon: '—', name: 'No item' };
+    this.itemIcon.textContent = info.icon;
+    this.itemName.textContent = info.name;
+    this.itemPanel.classList.toggle('has-item', item !== null);
+
+    if (gained) {
+      this.itemPanel.classList.remove('item-received');
+      void this.itemPanel.offsetWidth; // restart the animation
+      this.itemPanel.classList.add('item-received');
+      clearTimeout(this._itemAnimTimeout);
+      this._itemAnimTimeout = setTimeout(
+        () => this.itemPanel.classList.remove('item-received'),
+        600
+      );
+    }
+  }
+
   resetDriftDisplay() {
     this.totalElement.textContent = '0';
     this.driftElement.hidden = true;
@@ -163,6 +192,14 @@ export class HUD {
     }, 1400);
   }
 }
+
+const ITEM_DISPLAY = {
+  nitro: { icon: '🔥', name: 'Nitro' },
+  shield: { icon: '🛡️', name: 'Shield' },
+  oil: { icon: '🛢️', name: 'Oil Slick' },
+  rocket: { icon: '🚀', name: 'Rocket' },
+  slowdown: { icon: '🐌', name: 'Slowdown' },
+};
 
 function ordinalSuffix(n) {
   const ones = n % 10;

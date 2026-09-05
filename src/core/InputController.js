@@ -33,6 +33,10 @@ export class InputController {
       right: this.keys.has('KeyD') || this.keys.has('ArrowRight'),
       handbrake: this.keys.has('Space'),
       restart: this.keys.has('KeyR'),
+      useItem:
+        this.keys.has('ShiftLeft') ||
+        this.keys.has('ShiftRight') ||
+        this.keys.has('KeyE'),
     };
   }
 

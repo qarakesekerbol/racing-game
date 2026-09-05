@@ -20,9 +20,11 @@ export class ChaseCamera {
     this._initialized = false;
   }
 
-  update(dt, target, driftState = null) {
+  // extraFov: additive boost from effects (nitro), in degrees
+  update(dt, target, driftState = null, extraFov = 0) {
     const heading = target.rotation.y;
     const drifting = driftState ? driftState.drifting : false;
+    this._extraFov = extraFov;
 
     this._desiredPosition
       .copy(this.offset)
@@ -53,7 +55,8 @@ export class ChaseCamera {
   }
 
   _updateFov(dt, drifting) {
-    const targetFov = this.cfg.baseFov + (drifting ? this.cfg.driftFovBoost : 0);
+    const targetFov =
+      this.cfg.baseFov + (drifting ? this.cfg.driftFovBoost : 0) + (this._extraFov ?? 0);
     const t = 1 - Math.exp(-this.cfg.fovLerpSpeed * dt);
     const newFov = this.camera.fov + (targetFov - this.camera.fov) * t;
     if (Math.abs(newFov - this.camera.fov) > 0.01) {

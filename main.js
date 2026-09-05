@@ -2,11 +2,11 @@ import { Game } from './src/core/Game.js';
 
 const canvas = document.getElementById('app');
 const game = new Game(canvas);
+window.game = game; // console access for debugging
 
 // Debug autopilot for visual testing without a keyboard: open /?demo
 // Accelerates, then kicks into a handbrake drift and holds the slide.
 if (new URLSearchParams(location.search).has('demo')) {
-  window.game = game; // console access for debugging/visual checks
   const realGetState = game.input.getState.bind(game.input);
   let phase = 'accel';
   game.input.getState = () => {

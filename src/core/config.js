@@ -14,6 +14,7 @@ export const CONFIG = {
     steerLerpSpeed: 6, // steering response, 1/s
     steerAuthorityDrop: 0.55, // how much steering shrinks at top speed (0..1)
     maxYawRate: 1.5, // rad/s cap — raw bicycle-model yaw explodes at high speed
+    spinOutRate: 9, // rad/s while spinning out from a hit
   },
 
   drift: {
@@ -127,5 +128,110 @@ export const CONFIG = {
     firstRowDistance: 8, // meters behind the start line
     rowSpacing: 7,
     columnOffset: 2.3, // meters left/right of center line
+  },
+
+  pickups: {
+    // fractions along the track spline where a row of boxes sits
+    spots: [0.12, 0.37, 0.62, 0.85],
+    // 5 across so a full 8-car pack doesn't strip a row before the back
+    // markers arrive (a collected box is gone for respawnTime seconds).
+    perRow: 5,
+    rowSpacing: 2.3, // meters between boxes in a row
+    size: 1.5,
+    hoverHeight: 1.1,
+    bobAmplitude: 0.18,
+    bobSpeed: 2.2, // rad/s
+    spinSpeed: 1.6, // rad/s
+    pickupRadius: 2.2, // meters
+    respawnTime: 5, // seconds
+    burstParticles: 14,
+    burstLife: 0.5,
+    burstSpeed: 6,
+  },
+
+  items: {
+    // relative weights for the random roll
+    weights: { nitro: 30, shield: 22, oil: 20, rocket: 18, slowdown: 10 },
+    nitro: {
+      duration: 2.5,
+      speedMultiplier: 1.35,
+      accelMultiplier: 1.8,
+      fovBoost: 12,
+      flameRate: 90, // particles per second
+    },
+    shield: {
+      duration: 8,
+      radius: 2.1,
+    },
+    oil: {
+      dropDistance: 5, // meters behind the dropping car
+      radius: 2.4,
+      life: 12, // seconds the slick stays on track
+      gripMultiplier: 0.12,
+      spinOutTime: 1.0,
+      visualRadius: 2.4,
+    },
+    rocket: {
+      speed: 46, // m/s along the track
+      turnRate: 3.2, // rad/s homing authority
+      life: 6, // seconds before it fizzles
+      hitRadius: 2.4,
+      spinOutTime: 0.9,
+      trailRate: 70,
+    },
+    slowdown: {
+      targets: 3, // cars behind the user
+      duration: 3,
+      speedMultiplier: 0.75,
+    },
+    // AI behavior
+    aiUseDelay: [1, 4], // seconds before an AI fires its item
+  },
+
+  obstacles: {
+    cones: {
+      // spots along the spline: [t, lateral offset in meters]
+      spots: [
+        [0.05, 4.2], [0.07, 4.4], [0.09, 4.3],
+        [0.28, -4.3], [0.30, -4.5], [0.32, -4.2],
+        [0.55, 4.4], [0.57, 4.2],
+        [0.72, -4.4], [0.74, -4.2], [0.76, -4.5],
+      ],
+      radius: 0.5,
+      knockSpeed: 9, // m/s a hit cone flies away at
+      knockSpin: 7, // rad/s tumble
+      settleTime: 4, // seconds before a knocked cone is restored
+      carSpeedLoss: 0.97, // barely slows the car
+    },
+    tireStacks: {
+      // Keep clear of t > 0.90: the starting grid occupies ~0.94-0.99.
+      spots: [
+        [0.18, 5.0], [0.20, 5.0],
+        [0.45, -5.0], [0.47, -5.0],
+        [0.66, 5.0],
+        [0.82, -5.0], [0.84, -5.0],
+      ],
+      radius: 1.1,
+      restitution: 0.35,
+      carSpeedLoss: 0.6, // solid: hurts
+    },
+    sweepers: {
+      count: 2,
+      startOffsets: [0.5, 0.9], // spread around the track
+      speed: 13, // m/s, slow enough to be an obstacle
+      lateralOffset: [2.6, -2.6], // which side of the road each hugs
+      radius: 1.6,
+      carSpeedLoss: 0.45, // hitting one costs a lot of speed
+      color: '#6b7280',
+    },
+    slippery: {
+      // [t, lateral offset, radius]
+      spots: [
+        [0.22, 0, 5.5],
+        [0.5, 1.5, 5.0],
+        [0.78, -1.5, 5.5],
+      ],
+      gripMultiplier: 0.25,
+    },
   },
 };
