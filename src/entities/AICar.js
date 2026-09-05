@@ -12,8 +12,8 @@ const NEUTRAL_INPUT = {
 };
 
 export class AICar extends Car {
-  constructor({ color, name, driver }) {
-    super({ color });
+  constructor({ color, name, driver, style }) {
+    super({ color, style });
     this.name = name;
     this.driver = driver;
   }

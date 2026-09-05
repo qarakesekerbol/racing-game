@@ -10,7 +10,9 @@ import { CONFIG } from './config.js';
 const ITEM_TYPES = ['nitro', 'shield', 'oil', 'rocket', 'slowdown'];
 
 export class ItemManager {
-  constructor({ samples }) {
+  constructor({ samples, aiUseDelay }) {
+    // Tier can tighten how fast AI fire what they pick up.
+    this.aiUseDelay = aiUseDelay ?? CONFIG.items.aiUseDelay;
     this.samples = samples;
     this.n = samples.length;
     this.cars = new Map(); // id -> car item state
@@ -56,7 +58,7 @@ export class ItemManager {
     }
 
     state.item = picked;
-    state.aiUseTimer = randRange(CONFIG.items.aiUseDelay);
+    state.aiUseTimer = randRange(this.aiUseDelay);
     return picked;
   }
 

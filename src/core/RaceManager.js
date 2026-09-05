@@ -2,19 +2,26 @@
 // works on plain {x, z} spline samples so it never touches Three.js, and any car
 // entity (player or future AI) participates by id via update()'s carsData array.
 
+// Championship-style points by finishing position; DNF scores nothing.
+const POINTS = [15, 12, 10, 8, 6, 4, 2, 1];
+
 export class RaceManager {
   constructor({
     samples,
     totalLaps = 3,
     checkpointCount = 10,
-    checkpointRadius = 9,
+    checkpointRadius = 15, // covers the full half-width of the wide road
     countdownSeconds = 3,
+    endgameAfter = 3, // podium places that trigger the end-of-race window
+    endgameSeconds = 20,
     playerId = 'player',
   }) {
     this.samples = samples;
     this.totalLaps = totalLaps;
     this.checkpointRadius = checkpointRadius;
     this.countdownSeconds = countdownSeconds;
+    this.endgameAfter = endgameAfter;
+    this.endgameSeconds = endgameSeconds;
     this.playerId = playerId;
 
     // Invisible gates every 1/checkpointCount of the spline; index 0 is start/finish.
@@ -34,8 +41,13 @@ export class RaceManager {
   }
 
   restart() {
-    this.state = 'countdown'; // 'countdown' | 'running' | 'finished'
+    // 'countdown' -> 'running' -> 'endgame' (top 3 home, timer ticking)
+    // -> 'finished' (results ready)
+    this.state = 'countdown';
     this.raceTime = 0;
+    this.finishOrder = [];
+    this.endTimer = 0;
+    this.results = null;
     this._countdownRemaining = this.countdownSeconds;
     this._goTimer = 0;
     for (const id of this.cars.keys()) {
@@ -53,6 +65,8 @@ export class RaceManager {
       bestLap: null,
       finished: false,
       finishTime: null,
+      finishPosition: null,
+      dnf: false,
       progress: 0, // lapsCompleted + fraction of current lap, for ranking
       _sampleIndex: 0,
     };
@@ -94,10 +108,77 @@ export class RaceManager {
       const car = this.cars.get(data.id);
       if (!car || car.finished) continue;
       this._updateCar(car, data);
-      if (data.id === this.playerId && car.finished) {
-        this.state = 'finished';
+    }
+
+    // Once the podium is settled, everyone still out there gets a fixed
+    // window to come home before the race is called.
+    if (this.state === 'running' && this.finishOrder.length >= this.endgameAfter) {
+      this.state = 'endgame';
+      this.endTimer = this.endgameSeconds;
+    }
+
+    if (this.state === 'endgame') {
+      // Everyone home early ends it immediately; no point waiting.
+      if (this.finishOrder.length >= this.cars.size) {
+        this._concludeRace(carsData);
+        return;
+      }
+      this.endTimer -= dt;
+      if (this.endTimer <= 0) {
+        this.endTimer = 0;
+        this._concludeRace(carsData);
       }
     }
+  }
+
+  // Called once when the race is over: anyone still running is classified by
+  // how far they got, after every car that actually finished.
+  _concludeRace(carsData) {
+    const stragglers = [];
+    for (const [id, car] of this.cars.entries()) {
+      if (car.finished) continue;
+      car.dnf = true;
+      stragglers.push({ id, progress: car.progress });
+    }
+    stragglers.sort((a, b) => b.progress - a.progress);
+
+    let position = this.finishOrder.length;
+    for (const s of stragglers) {
+      position += 1;
+      this.cars.get(s.id).finishPosition = position;
+    }
+
+    this.state = 'finished';
+    this.results = this.getResults();
+  }
+
+  // Final classification: finishers in the order they crossed the line, then
+  // DNFs by distance covered. Points follow the position table in config.
+  getResults() {
+    const rows = [];
+    for (const [id, car] of this.cars.entries()) {
+      rows.push({
+        id,
+        position: car.finishPosition ?? Infinity,
+        finished: car.finished,
+        dnf: car.dnf,
+        totalTime: car.finishTime,
+        bestLap: car.bestLap,
+        lapsCompleted: car.lapsCompleted,
+        progress: car.progress,
+      });
+    }
+    rows.sort((a, b) => a.position - b.position);
+    return rows.map((row, i) => ({
+      ...row,
+      position: Number.isFinite(row.position) ? row.position : i + 1,
+      points: row.dnf ? 0 : (POINTS[i] ?? 0),
+    }));
+  }
+
+  // Seconds left in the end-of-race window, or null when not counting down.
+  get endgameRemaining() {
+    return this.state === 'endgame' ? Math.max(0, this.endTimer) : null;
   }
 
   // Compute progress for all cars without gate logic — used right after grid
@@ -185,6 +266,13 @@ export class RaceManager {
     if (car.lapsCompleted >= this.totalLaps) {
       car.finished = true;
       car.finishTime = this.raceTime;
+      // Finishing order is the source of truth for position, and it is
+      // recorded the same way for the player and every AI.
+      const id = [...this.cars.entries()].find(([, c]) => c === car)?.[0];
+      if (id && !this.finishOrder.includes(id)) {
+        this.finishOrder.push(id);
+        car.finishPosition = this.finishOrder.length;
+      }
     }
   }
 }

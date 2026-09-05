@@ -9,6 +9,47 @@ export function getQuality() {
 }
 
 export const CONFIG = {
+  game: {
+    title: 'FROST RUSH GP',
+    subtitle: 'winter kart racing',
+  },
+
+  // aiSpeedScale multiplies each AI's rolled maxSpeedFactor.
+  difficulty: {
+    easy: { label: 'Easy', aiSpeedScale: 0.88, rubberScale: 0.6 },
+    normal: { label: 'Normal', aiSpeedScale: 1.0, rubberScale: 1.0 },
+    hard: { label: 'Hard', aiSpeedScale: 1.12, rubberScale: 1.4 },
+  },
+
+  // Kart color choices offered in the setup screen.
+  playerColors: ['#d1263a', '#2f7de1', '#36b24a', '#f2c230', '#8e44ad', '#1abcb4'],
+
+  // Track difficulty tiers, shown as tabs on the track select screen.
+  // A tier is not just a label: it scales the AI field and item pressure on
+  // top of the player's chosen difficulty, so Hard tracks genuinely fight back.
+  tiers: {
+    easy: {
+      label: 'Easy', color: '#4fd48a', stars: 1,
+      aiSpeed: 0.9, aiAggression: 0.82, rubberScale: 0.6, aiItemDelay: [2.5, 6],
+    },
+    medium: {
+      label: 'Medium', color: '#ffc247', stars: 2,
+      aiSpeed: 1.0, aiAggression: 1.0, rubberScale: 1.0, aiItemDelay: [1.5, 4],
+    },
+    hard: {
+      label: 'Hard', color: '#ff6b57', stars: 3,
+      aiSpeed: 1.14, aiAggression: 1.2, rubberScale: 1.6, aiItemDelay: [0.6, 2],
+    },
+  },
+
+  // Kart body styles. Each is a distinct low-poly model, not a recolor.
+  kartStyles: [
+    { id: 'racer', name: 'Racer', blurb: 'Low, sleek, quick to turn in.' },
+    { id: 'buggy', name: 'Buggy', blurb: 'Rugged, roll cage, fat offroad tyres.' },
+    { id: 'classic', name: 'Classic', blurb: 'Rounded retro shape with a big grille.' },
+    { id: 'stealth', name: 'Stealth', blurb: 'Angular, futuristic, sharp edges.' },
+  ],
+
   car: {
     maxSpeed: 42, // m/s (~151 km/h)
     maxReverseSpeed: 12, // m/s
@@ -22,6 +63,7 @@ export const CONFIG = {
     steerAuthorityDrop: 0.55, // how much steering shrinks at top speed (0..1)
     maxYawRate: 1.5, // rad/s cap — raw bicycle-model yaw explodes at high speed
     spinOutRate: 9, // rad/s while spinning out from a hit
+    airGravity: 24, // m/s^2 pulling an airborne kart back down
   },
 
   drift: {
@@ -67,10 +109,15 @@ export const CONFIG = {
   camera: {
     baseFov: 65,
     driftFovBoost: 8, // degrees added to FOV while drifting
+    speedFovBoost: 6, // degrees added at top speed (scales with speed)
     fovLerpSpeed: 4, // 1/s
     positionSmoothing: 4, // higher = snappier follow
     driftPositionSmoothing: 2.2, // extra lag while drifting
     lookSmoothing: 7,
+    shakeDecay: 5, // 1/s — how fast collision shake settles
+    shakeAmplitude: 0.55, // meters of jitter at full shake
+    dipDecay: 6, // 1/s — landing dip recovery
+    dipAmount: 1.1, // meters the camera drops on a full-force landing
   },
 
   bodyRoll: {
@@ -92,10 +139,15 @@ export const CONFIG = {
       { hex: '#1abcb4', name: 'Cyan' },
       { hex: '#e84393', name: 'Pink' },
     ],
-    // per-car randomness ranges [min, max]
-    maxSpeedFactor: [0.86, 0.97], // of CONFIG.car.maxSpeed
+    // Per-car randomness ranges [min, max].
+    // Calibrated against measured solo lap times: a first-try player laps in
+    // ~28s, and this band spans ~31.5s (slowest) to ~25.4s (fastest), so the
+    // field brackets the player instead of driving away from them.
+    maxSpeedFactor: [0.68, 0.86], // of CONFIG.car.maxSpeed
     aggression: [0.7, 1.0], // 1 = brakes late, corners fast
-    lateralOffsetRange: 2.2, // random preferred offset from center line, +/- meters
+    lateralOffsetRange: 8, // AI lane offsets spread across the wide road
+    laneChangeInterval: [4, 10], // seconds between an AI picking a new lane
+    laneChangeRate: 0.7, // how fast the offset drifts to the new lane, 1/s
     // driving
     lookAheadBase: 6, // meters
     lookAheadPerSpeed: 0.45, // extra look-ahead seconds worth of travel
@@ -125,27 +177,37 @@ export const CONFIG = {
     carRadius: 1.4, // bounding circle per car, meters
     restitution: 0.4, // bounciness of car-vs-car impacts
     carSpeedLoss: 0.96, // velocity multiplier applied on impact
-    // barrier sits at ROAD_WIDTH/2 + BARRIER_OFFSET = 5.9m from the center line
-    wallMaxLateral: 4.85, // max |lateral| for a car center before wall contact
+    // barrier sits at ROAD_WIDTH/2 + BARRIER_OFFSET = 13.4m from the center line
+    wallMaxLateral: 12.4, // max |lateral| for a car center before wall contact
     wallSpeedLoss: 0.9, // velocity multiplier on wall contact
     wallBounce: 0.25, // how much outward velocity reflects back
   },
 
   grid: {
-    firstRowDistance: 8, // meters behind the start line
-    rowSpacing: 7,
-    columnOffset: 2.3, // meters left/right of center line
+    columns: 4, // 4 wide x 2 rows on the wide road
+    firstRowDistance: 10, // meters behind the start line
+    rowSpacing: 8,
+    columnSpacing: 5.2, // meters between grid columns
   },
 
   pickups: {
     // fractions along the track spline where a row of boxes sits
     spots: [0.12, 0.37, 0.62, 0.85],
-    // 5 across so a full 8-car pack doesn't strip a row before the back
+    // 6 across so a full 8-car pack doesn't strip a row before the back
     // markers arrive (a collected box is gone for respawnTime seconds).
-    perRow: 5,
-    rowSpacing: 2.3, // meters between boxes in a row
-    size: 1.5,
-    hoverHeight: 1.1,
+    perRow: 6,
+    rowSpacing: 3.6, // meters between boxes in a row
+    size: 1.9,
+    hoverHeight: 1.2,
+    iconCycleSeconds: 0.9, // mystery-box icon shuffle rate
+    iconSwaySpeed: 1.1, // rad/s of the icon's back-and-forth turn
+    iconSwayRange: 0.95, // radians either side of facing
+    // MeshPhysicalMaterial transmission looks best but costs a whole extra
+    // scene pass; the fresnel shader is the shipped default.
+    useTransmission: false,
+    sparklesPer: 4, // orbiting sparkles per pickup (one shared Points cloud)
+    sparkleRadius: 1.35,
+    sparkleSize: 13,
     bobAmplitude: 0.18,
     bobSpeed: 2.2, // rad/s
     spinSpeed: 1.6, // rad/s
@@ -233,36 +295,38 @@ export const CONFIG = {
     transitionSeconds: 2, // cross-fade time between modes
     autoCycle: false, // slowly advance modes during the race
     autoCycleSeconds: 45, // time spent in each mode when autoCycle is on
+    // Winter palette: bright snow day, warm pink-orange alpenglow sunset,
+    // moonlit blue night (ambient raised so snow/road edges stay readable).
     modes: {
       day: {
         label: 'Day',
         sunDirection: [60, 90, -40], // light position; direction is toward origin
-        sunColor: 0xfff4e0,
-        sunIntensity: 1.6,
-        ambientColor: 0xffffff,
-        ambientIntensity: 0.55,
-        skyTop: 0x5aa0f0,
-        skyBottom: 0xbfe0ff,
-        fogColor: 0x8fc7ff,
-        fogNear: 150,
-        fogFar: 450,
-        shadowOpacity: 1, // scales shadow darkness via light intensity split
+        sunColor: 0xfff1d6,
+        sunIntensity: 1.5,
+        ambientColor: 0xeaf2ff,
+        ambientIntensity: 0.62,
+        skyTop: 0x4d92e8,
+        skyBottom: 0xe6f1fc,
+        fogColor: 0xd9e8f7,
+        fogNear: 160,
+        fogFar: 460,
+        shadowOpacity: 1,
         starOpacity: 0,
         headlights: false,
         emissiveBoost: 1,
       },
       sunset: {
         label: 'Sunset',
-        sunDirection: [110, 18, -30], // low sun = long shadows
-        sunColor: 0xff9a3c,
-        sunIntensity: 1.5,
-        ambientColor: 0xff9d6e,
-        ambientIntensity: 0.38,
-        skyTop: 0x2a3d7a,
-        skyBottom: 0xff8c54,
-        fogColor: 0xff9a5c,
-        fogNear: 90,
-        fogFar: 340,
+        sunDirection: [110, 18, -30], // low sun = long shadows on the snow
+        sunColor: 0xff9a4c,
+        sunIntensity: 1.4,
+        ambientColor: 0xffb08a,
+        ambientIntensity: 0.42,
+        skyTop: 0x35427f,
+        skyBottom: 0xffa068,
+        fogColor: 0xf5a878,
+        fogNear: 100,
+        fogFar: 350,
         shadowOpacity: 1,
         starOpacity: 0.15,
         headlights: true,
@@ -270,21 +334,20 @@ export const CONFIG = {
       },
       night: {
         label: 'Night',
-        groundTint: 0x27384f, // multiplied into ground/grass so it reads dark blue-green
         sunDirection: [-50, 80, 40], // moon
-        sunColor: 0x9fb4ff,
-        sunIntensity: 0.32,
-        ambientColor: 0x2a3560,
-        ambientIntensity: 0.22,
-        skyTop: 0x03060f,
-        skyBottom: 0x0e1730,
-        fogColor: 0x070b18,
-        fogNear: 45,
-        fogFar: 190, // strong fog
+        sunColor: 0xa8bcff,
+        sunIntensity: 0.42, // snow bounces moonlight
+        ambientColor: 0x46557f,
+        ambientIntensity: 0.34, // raised so the road edges stay readable
+        skyTop: 0x040812,
+        skyBottom: 0x131d38,
+        fogColor: 0x0c1424,
+        fogNear: 55,
+        fogFar: 210,
         shadowOpacity: 0.5,
         starOpacity: 1,
         headlights: true,
-        emissiveBoost: 2.6,
+        emissiveBoost: 2.4,
       },
     },
   },
@@ -298,9 +361,9 @@ export const CONFIG = {
       angle: 0.34, // narrower cone, radians
       penumbra: 0.55,
       color: 0xfff0d0,
-      offsetX: 0.6, // lamp position on the car
-      offsetY: 0.42, // bumper height, not roof height
-      offsetZ: 2.1,
+      offsetX: 0.5, // lamp position on the kart nose
+      offsetY: 0.34, // bumper height, not roof height
+      offsetZ: 1.65,
       // Ground light pool (fake beam on the road surface)
       decalLength: 15,
       decalWidth: 5.4,
@@ -312,16 +375,16 @@ export const CONFIG = {
       color: 0xff2020,
       idleIntensity: 0.35, // emissive strength when coasting
       brakeIntensity: 1.6,
-      offsetX: 0.62,
-      offsetY: 0.62,
-      offsetZ: -2.1,
-      size: 0.16,
+      offsetX: 0.5,
+      offsetY: 0.48,
+      offsetZ: -1.62,
+      size: 0.14,
     },
     streetLamps: {
-      count: 14, // sparser: they were visually noisy in daylight
+      count: 20, // the widened track is ~40% longer
       side: 1, // 1 = left edge, -1 = right, alternates automatically
       alternateSides: true,
-      lateralOffset: 7.4, // meters from center line (outside the barrier)
+      lateralOffset: 15.6, // meters from center line (outside the barrier)
       poleHeight: 4.6, // shorter, less obtrusive
       poleRadius: 0.09,
       headColor: 0xffe6a8,
@@ -331,6 +394,28 @@ export const CONFIG = {
       lightHeight: 4.3,
       emissiveIntensity: 1.5,
     },
+  },
+
+  // Color grade pass (saturation boost + vignette). Skipped on low quality.
+  postFX: {
+    enabled: true,
+    saturation: 1.14,
+    vignette: 0.34, // edge darkening strength
+    vignetteSoftness: 0.55,
+  },
+
+  // Winter scenery instance counts — the perf knobs for the environment.
+  scenery: {
+    treeCount: 320,
+    rockCount: 60,
+    snowBankSpacing: 2.6, // meters between bank blobs along the road edges
+    snowBankOffset: 15.2, // lateral distance from the center line
+    mountainRings: [
+      { count: 22, radius: [320, 360], height: [22, 42], color: 0xbccbdf },
+      { count: 18, radius: [430, 475], height: [45, 80], color: 0xd4dfec },
+    ],
+    cloudCount: 9,
+    trackClearance: 20, // no trees/rocks closer than this to the spline
   },
 
   bloom: {
@@ -346,10 +431,10 @@ export const CONFIG = {
     cones: {
       // spots along the spline: [t, lateral offset in meters]
       spots: [
-        [0.05, 4.2], [0.07, 4.4], [0.09, 4.3],
-        [0.28, -4.3], [0.30, -4.5], [0.32, -4.2],
-        [0.55, 4.4], [0.57, 4.2],
-        [0.72, -4.4], [0.74, -4.2], [0.76, -4.5],
+        [0.05, 10.4], [0.07, 10.8], [0.09, 10.5],
+        [0.28, -10.6], [0.30, -11.0], [0.32, -10.4],
+        [0.55, 10.8], [0.57, 10.4],
+        [0.72, -10.8], [0.74, -10.4], [0.76, -11.0],
       ],
       radius: 0.5,
       knockSpeed: 9, // m/s a hit cone flies away at
@@ -360,32 +445,50 @@ export const CONFIG = {
     tireStacks: {
       // Keep clear of t > 0.90: the starting grid occupies ~0.94-0.99.
       spots: [
-        [0.18, 5.0], [0.20, 5.0],
-        [0.45, -5.0], [0.47, -5.0],
-        [0.66, 5.0],
-        [0.82, -5.0], [0.84, -5.0],
+        [0.18, 11.5], [0.20, 11.5],
+        [0.45, -11.5], [0.47, -11.5],
+        [0.66, 11.5],
+        [0.82, -11.5], [0.84, -11.5],
       ],
       radius: 1.1,
       restitution: 0.35,
       carSpeedLoss: 0.6, // solid: hurts
     },
-    sweepers: {
-      count: 2,
-      startOffsets: [0.5, 0.9], // spread around the track
-      speed: 13, // m/s, slow enough to be an obstacle
-      lateralOffset: [2.6, -2.6], // which side of the road each hugs
-      radius: 1.6,
-      carSpeedLoss: 0.45, // hitting one costs a lot of speed
-      color: '#6b7280',
-    },
     slippery: {
       // [t, lateral offset, radius]
       spots: [
-        [0.22, 0, 5.5],
-        [0.5, 1.5, 5.0],
-        [0.78, -1.5, 5.5],
+        [0.22, -4, 8],
+        [0.5, 4, 7.5],
+        [0.78, -3, 8],
       ],
       gripMultiplier: 0.25,
+    },
+    boostPads: {
+      // [t, lateral offset]
+      spots: [
+        [0.15, 3],
+        [0.42, -4],
+        [0.68, 4],
+      ],
+      duration: 1.5,
+      speedMultiplier: 1.32,
+      accelMultiplier: 1.8,
+      cooldown: 1.0, // per car, so sitting on a pad doesn't re-trigger
+      // Visual strip size — also the trigger footprint.
+      width: 6,
+      length: 8,
+    },
+    // Ramp geometry drives the launch: vy = speed * sin(rampAngle), where
+    // rampAngle = atan(height / length). Position is per-track.
+    ramp: {
+      length: 6.5, // run-up length along the road
+      height: 2.3, // lip height
+      width: 11, // wide enough to be a real feature
+      launchBoost: 1.15, // slight arcade exaggeration over pure ballistics
+      maxLaunch: 13,
+      minSpeed: 9, // slower than this just rolls over it
+      cooldown: 1.2,
+      signDistance: 26, // warning sign this far before the ramp
     },
   },
 };

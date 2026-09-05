@@ -1,123 +1,60 @@
 import * as THREE from 'three';
 import { CarPhysics } from '../core/CarPhysics.js';
 import { CarLights } from './CarLights.js';
+import { buildKart, repaintKart, deriveAccent } from './CarModel.js';
 import { CONFIG } from '../core/config.js';
 
-// Visual representation of a car built from primitives.
-// Owns a CarPhysics instance and syncs the mesh from its numeric state each frame.
-// Geometries and non-body materials are shared across all cars (player + AI);
-// body materials are cached per color.
-
-const BODY_WIDTH = 1.8;
-const BODY_HEIGHT = 0.6;
-const BODY_LENGTH = 4.2;
-const WHEEL_RADIUS = 0.35;
-const WHEEL_WIDTH = 0.3;
-
-let shared = null;
-const bodyMaterialCache = new Map();
-
-function getShared() {
-  if (shared) return shared;
-
-  const wheelGeometry = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_WIDTH, 20);
-  // Bake the cylinder orientation so the wheel's local X axis is its rolling
-  // axle; mesh.rotation.x can then be used purely for spin.
-  wheelGeometry.rotateZ(Math.PI / 2);
-
-  shared = {
-    bodyGeometry: new THREE.BoxGeometry(BODY_WIDTH, BODY_HEIGHT, BODY_LENGTH),
-    cabinGeometry: new THREE.BoxGeometry(
-      BODY_WIDTH * 0.75,
-      BODY_HEIGHT * 0.75,
-      BODY_LENGTH * 0.42
-    ),
-    wheelGeometry,
-    cabinMaterial: new THREE.MeshStandardMaterial({
-      color: 0x1b1f24,
-      metalness: 0.1,
-      roughness: 0.6,
-    }),
-    wheelMaterial: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
-  };
-  return shared;
-}
-
-function getBodyMaterial(color) {
-  if (!bodyMaterialCache.has(color)) {
-    bodyMaterialCache.set(
-      color,
-      new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.5 })
-    );
-  }
-  return bodyMaterialCache.get(color);
-}
+// A drivable car: CarPhysics for movement, a procedural kart (CarModel) for
+// looks, CarLights for head/tail lights. Owns nothing but visuals + physics
+// sync; all gameplay values live in the physics component.
 
 export class Car {
-  constructor({ color = '#d1263a', isPlayer = false } = {}) {
+  constructor({ color = '#d1263a', accent, style = 'racer', isPlayer = false } = {}) {
     this.physics = new CarPhysics();
-    this.mesh = new THREE.Group();
     this.color = color;
+    this.style = style;
     this.isPlayer = isPlayer;
     this._roll = 0; // smoothed body roll, radians
     this._braking = false;
-    this._buildMesh();
+
+    this._buildModel(color, accent ?? deriveAccent(color), style);
     this.lights = new CarLights({ carMesh: this.mesh, isPlayer });
+  }
+
+  _buildModel(color, accent, style) {
+    const kart = buildKart({ bodyColor: color, accentColor: accent, style });
+    this.mesh = kart.group;
+    this._kart = kart;
+    this._bodyGroup = kart.bodyGroup;
+    this.wheels = kart.wheels;
+    this.wheelRadius = kart.wheelRadius;
+    this._blob = kart.blobMesh;
+  }
+
+  // Live recolor (kart preview in the setup screen).
+  setColor(color, accent) {
+    this.color = color;
+    repaintKart(this._kart, color, accent ?? deriveAccent(color));
+  }
+
+  // Swap to a different body style in place. Rebuilds the model and re-parents
+  // the lights, keeping physics and the scene node the caller holds.
+  setStyle(style, scene) {
+    if (style === this.style) return;
+    this.style = style;
+    const oldMesh = this.mesh;
+    const parent = oldMesh.parent ?? scene;
+    oldMesh.removeFromParent();
+
+    this._buildModel(this.color, deriveAccent(this.color), style);
+    this.lights = new CarLights({ carMesh: this.mesh, isPlayer: this.isPlayer });
+    parent?.add(this.mesh);
+    this.syncTransform();
   }
 
   // on: headlights active; intensity: 0..1 fade during a time-of-day transition
   updateLights(on, intensity) {
     this.lights.update(on, this._braking, intensity);
-  }
-
-  _buildMesh() {
-    const res = getShared();
-
-    // Body + cabin live in their own group so they can roll into turns
-    // without tilting the wheels.
-    this._bodyGroup = new THREE.Group();
-    this.mesh.add(this._bodyGroup);
-
-    const body = new THREE.Mesh(res.bodyGeometry, getBodyMaterial(this.color));
-    body.position.y = WHEEL_RADIUS + BODY_HEIGHT / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    this._bodyGroup.add(body);
-
-    const cabinHeight = BODY_HEIGHT * 0.75;
-    const cabin = new THREE.Mesh(res.cabinGeometry, res.cabinMaterial);
-    cabin.position.set(
-      0,
-      body.position.y + BODY_HEIGHT / 2 + cabinHeight / 2 - 0.05,
-      -BODY_LENGTH * 0.06
-    );
-    cabin.castShadow = true;
-    this._bodyGroup.add(cabin);
-
-    const offsetX = BODY_WIDTH / 2 + WHEEL_WIDTH / 2 - 0.08;
-    const offsetZ = BODY_LENGTH / 2 - WHEEL_RADIUS - 0.25;
-
-    this.wheels = {
-      frontLeft: this._createWheel(res, offsetX, offsetZ),
-      frontRight: this._createWheel(res, -offsetX, offsetZ),
-      rearLeft: this._createWheel(res, offsetX, -offsetZ),
-      rearRight: this._createWheel(res, -offsetX, -offsetZ),
-    };
-  }
-
-  _createWheel(res, x, z) {
-    // Pivot group handles steering (Y rotation); inner mesh handles spin (X rotation).
-    const pivot = new THREE.Group();
-    pivot.position.set(x, WHEEL_RADIUS, z);
-
-    const wheelMesh = new THREE.Mesh(res.wheelGeometry, res.wheelMaterial);
-    wheelMesh.castShadow = true;
-    wheelMesh.receiveShadow = true;
-    pivot.add(wheelMesh);
-
-    this.mesh.add(pivot);
-    pivot.userData.spinMesh = wheelMesh;
-    return pivot;
   }
 
   reset(x, z, heading) {
@@ -137,18 +74,58 @@ export class Car {
     this.wheels.frontLeft.rotation.y = state.steerAngle;
     this.wheels.frontRight.rotation.y = state.steerAngle;
 
-    const spinDelta = (state.speed / WHEEL_RADIUS) * dt;
+    const spinDelta = (state.speed / this.wheelRadius) * dt;
     for (const wheel of Object.values(this.wheels)) {
       wheel.userData.spinMesh.rotation.x += spinDelta;
     }
 
     this._updateBodyRoll(dt, state);
+    this._updateSquash(dt, state);
+    this._updateGroundBlob();
+  }
+
+  // The blob is a child of the kart, so cancel the kart's altitude to pin it
+  // to the ground, and fade/shrink it as the kart climbs.
+  _updateGroundBlob() {
+    if (!this._blob) return;
+    const y = this.physics.y;
+    this._blob.position.y = 0.025 - y;
+    const fade = Math.max(0, 1 - y / 4);
+    this._blob.material.opacity = fade;
+    this._blob.visible = fade > 0.02;
+    const spread = 1 + y * 0.12;
+    this._blob.scale.set(spread, 1, spread);
+  }
+
+  // Landing squash: compress on touchdown, spring back. Also pitches the nose
+  // up slightly while airborne so a jump reads as a jump.
+  _updateSquash(dt, state) {
+    if (state.justLanded) {
+      this._squash = Math.min(0.45, state.landingImpact * 0.055);
+    }
+    this._squash = (this._squash ?? 0) * Math.max(0, 1 - dt * 7);
+
+    this._bodyGroup.scale.set(
+      1 + this._squash * 0.5,
+      1 - this._squash,
+      1 + this._squash * 0.5
+    );
+
+    // Airborne tilt follows the actual velocity vector: nose up on the way
+    // out of the ramp, level at apex, nose down on the way in. Negative pitch
+    // is nose-up because the kart's forward axis is +Z.
+    const horizontal = Math.max(4, Math.hypot(this.physics.vx, this.physics.vz));
+    const targetPitch = state.airborne
+      ? -Math.atan2(this.physics.vy, horizontal) * 0.85
+      : state.surfacePitch; // sitting on a slope (ramp) or flat ground
+    this._pitch = (this._pitch ?? 0) + (targetPitch - (this._pitch ?? 0)) * Math.min(1, dt * 9);
+    this.mesh.rotation.x = this._pitch;
   }
 
   // Mesh follows physics. Called from update() and again after collision
   // resolution, which mutates physics positions after the entity update.
   syncTransform() {
-    this.mesh.position.set(this.physics.x, 0, this.physics.z);
+    this.mesh.position.set(this.physics.x, this.physics.y, this.physics.z);
     this.mesh.rotation.y = this.physics.heading;
   }
 

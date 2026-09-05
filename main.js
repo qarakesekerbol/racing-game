@@ -9,8 +9,10 @@ window.game = game;
 window.CONFIG = CONFIG;
 
 // Debug autopilot for visual testing without a keyboard: open /?demo
-// Accelerates, then kicks into a handbrake drift and holds the slide.
+// Skips the menu, starts a default race, accelerates, then holds a drift.
 if (new URLSearchParams(location.search).has('demo')) {
+  game.menu.hide();
+  game.startRace({ color: '#d1263a', laps: 3, timeOfDay: 'day', difficulty: 'normal' });
   const realGetState = game.input.getState.bind(game.input);
   let phase = 'accel';
   game.input.getState = () => {

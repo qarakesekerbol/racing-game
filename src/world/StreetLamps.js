@@ -10,8 +10,10 @@ import { CONFIG, getQuality } from '../core/config.js';
 // removing them is what actually saves the work.
 
 export class StreetLamps {
-  constructor({ track }) {
-    const cfg = CONFIG.lights.streetLamps;
+  constructor({ track, lampData }) {
+    // Per-track placement (count/offset/height) merged over the shared look.
+    const cfg = { ...CONFIG.lights.streetLamps, ...lampData };
+    this.cfg = cfg;
     this.group = new THREE.Group();
     this.bulbs = []; // world position of each lamp head
 
@@ -100,7 +102,7 @@ export class StreetLamps {
     }
     this.lightPool.length = 0;
 
-    const cfg = CONFIG.lights.streetLamps;
+    const cfg = this.cfg;
     for (let i = 0; i < size; i++) {
       const light = new THREE.PointLight(cfg.headColor, 0, cfg.lightDistance, 2);
       light.castShadow = false; // shadow-casting point lights are far too costly
@@ -125,14 +127,16 @@ export class StreetLamps {
 
   // nightFactor: 0 = off (day), 1 = fully on (night)
   update(cameraPosition, nightFactor) {
-    const cfg = CONFIG.lights.streetLamps;
+    const cfg = this.cfg;
     const maxLights = getQuality().maxLampLights;
     if (maxLights !== this._poolSize) this._rebuildPool(maxLights);
 
     this.headMaterial.emissiveIntensity = nightFactor * cfg.emissiveIntensity;
 
-    // Below this the lamps contribute nothing visible, so drop the lights.
-    if (nightFactor <= 0.05 || maxLights === 0) {
+    // Real PointLights only in actual darkness. At sunset (nightFactor ~0.7)
+    // the emissive heads glow but the light pool stays off — that alone
+    // removes 4-6 lights from every material's shader during sunset.
+    if (nightFactor < 0.85 || maxLights === 0) {
       this._setLightsInScene(false);
       return;
     }

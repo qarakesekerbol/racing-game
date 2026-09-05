@@ -6,10 +6,17 @@ import { CONFIG } from './config.js';
 //   the outward velocity component, so cars slide along walls instead of sticking.
 // Mutates CarPhysics objects (x, z, vx, vz) in place; callers re-sync meshes after.
 
+// A kart is never legitimately this far from the nearest spline sample; a
+// larger distance means the cached index is stale, not that the kart is lost.
+const MAX_PLAUSIBLE_DIST_SQ = 60 * 60;
+
 export class Collisions {
-  constructor({ samples }) {
+  // roadWidth comes from the loaded track; the wall sits just inside the
+  // visual barrier line so karts stop before clipping through it.
+  constructor({ samples, roadWidth }) {
     this.samples = samples;
     this.n = samples.length;
+    this.wallMaxLateral = roadWidth / 2 - 0.6;
     this._sampleIndices = new Map(); // physics object -> cached nearest sample
   }
 
@@ -17,8 +24,11 @@ export class Collisions {
     this._sampleIndices.clear();
   }
 
-  // cars: array of CarPhysics instances
+  // cars: array of CarPhysics instances.
+  // Fills this.impacts with { a, b, force } per car-car hit this frame,
+  // so audio/effects can react without collision code knowing about them.
   resolve(cars) {
+    this.impacts = [];
     this._resolveCarPairs(cars);
     for (const car of cars) this._resolveWall(car);
   }
@@ -51,6 +61,7 @@ export class Collisions {
         // Impulse only when approaching, so resting contact doesn't jitter.
         const relVelNormal = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
         if (relVelNormal < 0) {
+          this.impacts.push({ a, b, force: -relVelNormal });
           const impulse = (-(1 + cfg.restitution) * relVelNormal) / 2;
           a.vx -= impulse * nx;
           a.vz -= impulse * nz;
@@ -83,10 +94,10 @@ export class Collisions {
 
     const s = this.samples[idx];
     const lateral = (car.x - s.x) * nx + (car.z - s.z) * nz;
-    if (Math.abs(lateral) <= cfg.wallMaxLateral) return;
+    if (Math.abs(lateral) <= this.wallMaxLateral) return;
 
     const side = Math.sign(lateral);
-    const excess = Math.abs(lateral) - cfg.wallMaxLateral;
+    const excess = Math.abs(lateral) - this.wallMaxLateral;
     car.x -= nx * side * excess;
     car.z -= nz * side * excess;
 
@@ -103,20 +114,10 @@ export class Collisions {
 
   _nearestSample(car) {
     const cached = this._sampleIndices.get(car);
+    let bestIdx = cached;
     let bestDist = Infinity;
-    let bestIdx = 0;
 
-    if (cached === undefined) {
-      // First contact with this car (or after reset): full scan.
-      for (let i = 0; i < this.n; i++) {
-        const s = this.samples[i];
-        const d = (s.x - car.x) ** 2 + (s.z - car.z) ** 2;
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
-      }
-    } else {
+    if (cached !== undefined) {
       for (let off = -20; off <= 20; off++) {
         const idx = (cached + off + this.n) % this.n;
         const s = this.samples[idx];
@@ -124,6 +125,22 @@ export class Collisions {
         if (d < bestDist) {
           bestDist = d;
           bestIdx = idx;
+        }
+      }
+    }
+
+    // Fall back to a full scan when there is no cache, or when the windowed
+    // result is implausibly far away. A stale cache otherwise clamps the kart
+    // against a completely unrelated stretch of track and flings it across the
+    // map — which is what happens after any teleport-scale move.
+    if (cached === undefined || bestDist > MAX_PLAUSIBLE_DIST_SQ) {
+      bestDist = Infinity;
+      for (let i = 0; i < this.n; i++) {
+        const s = this.samples[i];
+        const d = (s.x - car.x) ** 2 + (s.z - car.z) ** 2;
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
         }
       }
     }

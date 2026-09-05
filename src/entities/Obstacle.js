@@ -48,7 +48,7 @@ export class Cone {
 
     this.mesh = new THREE.Group();
     const body = new THREE.Mesh(res.coneGeometry, res.coneMaterial);
-    body.castShadow = true;
+    body.castShadow = false; // perf: only karts cast shadows
     this.mesh.add(body);
     const band = new THREE.Mesh(res.coneBandGeometry, res.coneBandMaterial);
     band.position.y = 0.45;
@@ -120,7 +120,7 @@ export class TireStack {
       const tire = new THREE.Mesh(res.tireGeometry, res.tireMaterial);
       tire.position.y = 0.22 + i * 0.4;
       tire.rotation.y = Math.random() * Math.PI;
-      tire.castShadow = true;
+      tire.castShadow = false; // perf: only karts cast shadows
       tire.receiveShadow = true;
       this.mesh.add(tire);
     }

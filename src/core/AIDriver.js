@@ -15,10 +15,12 @@ const NEUTRAL = {
 export class AIDriver {
   // params: { maxSpeed (m/s), aggression (0..1), lateralOffset (m) } — the
   // per-car personality, randomized once at creation.
-  constructor({ samples, params }) {
+  constructor({ samples, params, roadWidth }) {
     this.samples = samples;
     this.n = samples.length;
     this.params = params;
+    // Lane wandering spans the drivable width of whichever track is loaded.
+    this.laneRange = roadWidth ? roadWidth / 2 - 4.5 : CONFIG.ai.lateralOffsetRange;
 
     let length = 0;
     for (let i = 0; i < this.n; i++) {
@@ -35,6 +37,26 @@ export class AIDriver {
     this._sampleIndex = 0;
     this._stuckTimer = 0;
     this._reverseTimer = 0;
+    this._lane = this.params.lateralOffset;
+    this._laneTarget = this.params.lateralOffset;
+    this._laneTimer = 2 + Math.random() * 4;
+  }
+
+  // Full-track scan for the nearest sample. The per-frame windowed search can't
+  // recover from teleport-scale jumps (grid resets, mode switches), so call
+  // this after moving the car arbitrarily.
+  resyncPosition(physics) {
+    let bestDist = Infinity;
+    let bestIdx = 0;
+    for (let i = 0; i < this.n; i++) {
+      const s = this.samples[i];
+      const d = (s.x - physics.x) ** 2 + (s.z - physics.z) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    this._sampleIndex = bestIdx;
   }
 
   // context: { cars: [{id, x, z}], selfId, playerProgress, myProgress, raceRunning }
@@ -59,6 +81,15 @@ export class AIDriver {
     }
 
     this._trackNearestSample(physics);
+
+    // Lane wandering: every few seconds pick a new preferred lane across the
+    // wide road and drift toward it, so the pack doesn't ride the center line.
+    this._laneTimer -= dt;
+    if (this._laneTimer <= 0) {
+      this._laneTimer = randRange(cfg.laneChangeInterval);
+      this._laneTarget = (Math.random() * 2 - 1) * this.laneRange;
+    }
+    this._lane += (this._laneTarget - this._lane) * Math.min(1, cfg.laneChangeRate * dt);
 
     // --- Avoidance: cars directly ahead shift our target line and cut throttle ---
     const sinH = Math.sin(physics.heading);
@@ -87,9 +118,9 @@ export class AIDriver {
     const target = this.samples[ti];
     const [tnx, tnz] = this._normalAt(ti);
     const offset = clamp(
-      this.params.lateralOffset + avoidOffset,
-      -cfg.lateralOffsetRange - cfg.avoidShift,
-      cfg.lateralOffsetRange + cfg.avoidShift
+      this._lane + avoidOffset,
+      -this.laneRange - cfg.avoidShift,
+      this.laneRange + cfg.avoidShift
     );
     const tx = target.x + tnx * offset;
     const tz = target.z + tnz * offset;
@@ -110,10 +141,12 @@ export class AIDriver {
     let targetSpeed =
       this.params.maxSpeed - (this.params.maxSpeed - cfg.minCornerSpeed) * severity;
 
-    // --- Rubber-banding: catch up when behind the player, ease off when ahead ---
+    // --- Rubber-banding: catch up when behind the player, ease off when
+    // ahead. rubberScale comes from the difficulty setting. ---
     const gap = context.playerProgress - context.myProgress; // in laps
     const rb = cfg.rubberBand;
-    targetSpeed *= 1 + clamp(gap * rb.strength, -rb.maxSlow, rb.maxBoost);
+    const rubberScale = this.params.rubberScale ?? 1;
+    targetSpeed *= 1 + clamp(gap * rb.strength * rubberScale, -rb.maxSlow, rb.maxBoost);
 
     targetSpeed *= throttleScale;
 
@@ -162,6 +195,10 @@ export class AIDriver {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function randRange([min, max]) {
+  return min + Math.random() * (max - min);
 }
 
 function normalizeAngle(angle) {

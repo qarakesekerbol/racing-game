@@ -13,6 +13,9 @@ export class Minimap {
 
     this.width = canvas.width / DPR;
     this.height = canvas.height / DPR;
+    // Reset first: a rebuild (track switch) reuses the same canvas, and
+    // scale() compounds onto whatever transform is already there.
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.scale(DPR, DPR);
 
     this._computeTransform();
@@ -60,17 +63,27 @@ export class Minimap {
     ctx.closePath();
 
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
-    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    // Stylized: soft glow under a chunky road ribbon with a dashed center line.
+    ctx.shadowColor = 'rgba(140, 190, 255, 0.55)';
+    ctx.shadowBlur = 8;
+    ctx.strokeStyle = 'rgba(235, 242, 252, 0.35)';
+    ctx.lineWidth = 13;
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(30, 36, 52, 0.9)';
+    ctx.lineWidth = 9;
     ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
     // start/finish tick
     const [sx, sy] = this._toMap(this.samples[0].x, this.samples[0].z);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(sx - 2.5, sy - 2.5, 5, 5);
+    ctx.fillStyle = '#ffd75e';
+    ctx.fillRect(sx - 3, sy - 3, 6, 6);
 
     return layer;
   }
@@ -81,38 +94,33 @@ export class Minimap {
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.drawImage(this._trackLayer, 0, 0, this.width, this.height);
 
-    // AI cars as small dots first, player triangle on top.
-    for (const car of cars) {
-      if (car.isPlayer) continue;
-      const [x, y] = this._toMap(car.x, car.z);
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = car.color;
-      ctx.fill();
-    }
-
-    for (const car of cars) {
-      if (!car.isPlayer) continue;
+    // Every car uses the same heading arrow; the player's is larger and
+    // outlined so it still stands out from the pack.
+    const drawArrow = (car) => {
       const [x, y] = this._toMap(car.x, car.z);
       // Screen-space direction of the car's forward vector (sin h, cos h),
       // with Z flipped to match _toMap.
       const angle = Math.atan2(-Math.cos(car.heading), Math.sin(car.heading));
-      const size = 6;
+      const size = car.isPlayer ? 6.5 : 5;
 
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
       ctx.beginPath();
       ctx.moveTo(size, 0);
-      ctx.lineTo(-size * 0.6, size * 0.55);
-      ctx.lineTo(-size * 0.6, -size * 0.55);
+      ctx.lineTo(-size * 0.62, size * 0.58);
+      ctx.lineTo(-size * 0.3, 0);
+      ctx.lineTo(-size * 0.62, -size * 0.58);
       ctx.closePath();
       ctx.fillStyle = car.color;
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = car.isPlayer ? '#ffffff' : 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = car.isPlayer ? 1.4 : 0.9;
       ctx.stroke();
       ctx.restore();
-    }
+    };
+
+    for (const car of cars) if (!car.isPlayer) drawArrow(car);
+    for (const car of cars) if (car.isPlayer) drawArrow(car);
   }
 }

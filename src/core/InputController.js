@@ -39,6 +39,7 @@ export class InputController {
         this.keys.has('KeyE'),
       cycleTimeOfDay: this.keys.has('KeyN'),
       toggleDebug: this.keys.has('KeyF'),
+      pause: this.keys.has('Escape'),
     };
   }
 

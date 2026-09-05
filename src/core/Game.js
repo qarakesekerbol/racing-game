@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { InputController } from './InputController.js';
+import { InputManager } from './InputManager.js';
 import { ChaseCamera } from './ChaseCamera.js';
 import { RaceManager } from './RaceManager.js';
 import { AIDriver } from './AIDriver.js';
@@ -9,6 +9,7 @@ import { PickupManager } from './PickupManager.js';
 import { ObstacleManager } from './ObstacleManager.js';
 import { CONFIG, getQuality } from './config.js';
 import { Car } from '../entities/Car.js';
+import { randomStyle } from '../entities/CarModel.js';
 import { AICar } from '../entities/AICar.js';
 import { ParticleField } from '../entities/ParticleField.js';
 import { Pickup } from '../entities/Pickup.js';
@@ -16,14 +17,17 @@ import { ItemVisuals } from '../entities/ItemVisuals.js';
 import { SkidMarks } from '../entities/SkidMarks.js';
 import { TireSmoke } from '../entities/TireSmoke.js';
 import { PostProcessing } from './PostProcessing.js';
-import { Track } from '../world/Track.js';
-import { Ground } from '../world/Ground.js';
+import { AudioManager } from './AudioManager.js';
+import { Records } from './Records.js';
 import { Lighting } from '../world/Lighting.js';
 import { Sky } from '../world/Sky.js';
 import { TimeOfDay } from '../world/TimeOfDay.js';
-import { StreetLamps } from '../world/StreetLamps.js';
+import { TrackManager } from '../world/TrackManager.js';
+import { TRACKS } from '../world/tracks/index.js';
 import { HUD } from '../ui/HUD.js';
 import { Minimap } from '../ui/Minimap.js';
+import { MainMenu } from '../ui/MainMenu.js';
+import { KartPreview } from '../ui/KartPreview.js';
 
 // Owns the renderer, scene graph, and the requestAnimationFrame loop.
 // Each tick: read input -> update physics/entities -> race logic -> camera -> render -> HUD.
@@ -51,31 +55,18 @@ export class Game {
     this._initScene();
     this._initEntities();
 
-    this.input = new InputController();
     this.hud = new HUD();
+    this.input = new InputManager({
+      onMethodChange: (method) => this.hud.setInputMethod(method),
+      onGamepadConnected: (name) => this.hud.showToast(`Gamepad connected — ${shortPadName(name)}`),
+    });
     this.hud.onRestart = () => this._restartRace();
+    this.hud.onBackToMenu = () => this.quitToMenu();
 
-    this.raceManager = new RaceManager({ samples: this._trackSamples, playerId: PLAYER_ID });
-    this.raceManager.registerCar(PLAYER_ID);
-    for (const aiCar of this.aiCars) this.raceManager.registerCar(aiCar.id);
+    this.audio = new AudioManager();
+    this.records = new Records();
 
-    this.collisions = new Collisions({ samples: this._trackSamples });
-
-    this.itemManager = new ItemManager({ samples: this._trackSamples });
-    this.itemManager.registerCar(PLAYER_ID);
-    for (const aiCar of this.aiCars) this.itemManager.registerCar(aiCar.id);
-
-    this.pickupManager = new PickupManager({
-      track: this.track,
-      itemManager: this.itemManager,
-    });
-    this.pickupManager.addTo(this.scene);
-
-    this.obstacleManager = new ObstacleManager({
-      track: this.track,
-      samples: this._trackSamples,
-    });
-    this.obstacleManager.addTo(this.scene);
+    this._buildTrackSystems();
 
     this.particles = new ParticleField();
     this.particles.addTo(this.scene);
@@ -91,7 +82,8 @@ export class Game {
     this._useItemHeld = false;
     this._nightHeld = false;
 
-    this.minimap = new Minimap(document.getElementById('minimap'), this._trackSamples);
+    this.minimapCanvas = document.getElementById('minimap');
+    this.minimap = new Minimap(this.minimapCanvas, this._trackSamples);
 
     this._placeCarsOnGrid();
     this.raceManager.primeCarPositions(this._collectCarsData());
@@ -100,10 +92,126 @@ export class Game {
     this._fpsFrames = 0;
     this._finishShown = false;
     this._restartHeld = false;
+    this._pauseHeld = false;
     this._standingsTimer = 0;
+    this._lastCountdownSound = null;
+    this._lastLapSound = 1;
+
+    // 'menu' (attract mode) | 'racing' | 'paused'
+    this.mode = 'menu';
+    this._menuCameraAngle = 0;
+
+    this.menu = new MainMenu({
+      onPlay: (setup) => this.startRace(setup),
+      onResume: () => this.resumeRace(),
+      onRestart: () => {
+        this._restartRace();
+        this.mode = 'racing';
+      },
+      onQuitToMenu: () => this.quitToMenu(),
+      onSettingsChange: (settings) => this._applySettings(settings),
+      onPreviewColor: (color) => {
+        this.car.setColor(color);
+        this.kartPreview?.setKart(this.menu.setup.kartStyle, color);
+      },
+      onPreviewStyle: (style) => {
+        this.car.setStyle(style, this.scene);
+        this.kartPreview?.setKart(style, this.menu.setup.color);
+      },
+      onPreviewActive: (active) => this.kartPreview?.setActive(active),
+      // Selecting a card loads that track live behind the menu, so the
+      // attract camera previews the real thing.
+      onPreviewTrack: (trackId) => this.switchTrack(trackId),
+      getRecords: () => this.records.getAll(),
+      getTrackBest: (trackId) => this.records.bestLapFor(trackId),
+      onAnyClick: () => {
+        this.audio.unlock();
+        this.audio.play('click');
+      },
+    });
+    this.kartPreview = new KartPreview(document.getElementById('kart-preview'));
+    this.kartPreview.setKart(this.menu.setup.kartStyle, this.menu.setup.color);
+
+    this._applySettings(this.menu.settings);
+    this.car.setColor(this.menu.setup.color);
+    this.hud.setVisible(false);
+
+    // First interaction anywhere unlocks audio (browser autoplay rules).
+    const unlock = () => this.audio.unlock();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
 
     this._onResize = () => this._handleResize();
     window.addEventListener('resize', this._onResize);
+  }
+
+  _applySettings(settings) {
+    this._settings = settings;
+    CONFIG.quality.level = settings.quality;
+    CONFIG.bloom.enabled = settings.bloom;
+    document.getElementById('minimap').style.display = settings.minimap ? '' : 'none';
+    this.input?.setForceTouch(!!settings.touchControls);
+    this.audio.setVolumes({
+      master: settings.masterVolume,
+      music: settings.musicVolume,
+      sfx: settings.sfxVolume,
+    });
+  }
+
+  // --- Mode transitions ---
+
+  startRace({ trackId, color, kartStyle, laps, timeOfDay, difficulty }) {
+    if (trackId) this.switchTrack(trackId);
+    if (kartStyle) this.car.setStyle(kartStyle, this.scene);
+    this.car.setColor(color);
+    this.raceManager.totalLaps = laps;
+    this._difficultyName = difficulty;
+
+    CONFIG.timeOfDay.autoCycle = timeOfDay === 'auto';
+    if (timeOfDay !== 'auto') this.timeOfDay.setMode(timeOfDay);
+
+    // The AI field is shaped by the track's tier AND the player's difficulty
+    // choice, multiplied together — a Hard track on Hard is the real test.
+    const diff = CONFIG.difficulty[difficulty];
+    const tier = CONFIG.tiers[this.world.data.tier] ?? CONFIG.tiers.medium;
+    for (const aiCar of this.aiCars) {
+      const d = aiCar.driver;
+      d.params.maxSpeed = d.baseMaxSpeed * diff.aiSpeedScale * tier.aiSpeed;
+      d.params.aggression = Math.min(1.35, (d.baseAggression ?? d.params.aggression) * tier.aiAggression);
+      d.params.rubberScale = diff.rubberScale * tier.rubberScale;
+    }
+
+    this._restartRace();
+    this.mode = 'racing';
+    this.hud.setVisible(true);
+    this.audio.setEngineActive(true);
+    this.audio.setMusicFast(false);
+  }
+
+  pauseRace() {
+    if (this.mode !== 'racing') return;
+    this.mode = 'paused';
+    this.audio.setEngineActive(false);
+    this.menu.show('pause');
+  }
+
+  resumeRace() {
+    if (this.mode !== 'paused') return;
+    this.mode = 'racing';
+    this.audio.setEngineActive(true);
+  }
+
+  quitToMenu() {
+    this.mode = 'menu';
+    this.hud.setVisible(false);
+    this.hud.hideFinish();
+    this.audio.setEngineActive(false);
+    this.audio.setMusicFast(false);
+    // Cars keep driving from wherever they are — attract mode takes over,
+    // so every driver needs to know where its car actually is.
+    this._attractDriver.resyncPosition(this.car.physics);
+    for (const aiCar of this.aiCars) aiCar.driver.resyncPosition(aiCar.physics);
+    this.menu.show('main');
   }
 
   _initRenderer() {
@@ -136,36 +244,120 @@ export class Game {
       65,
       window.innerWidth / window.innerHeight,
       0.1,
-      1000
+      1200
     );
 
     this.lighting = new Lighting();
     this.lighting.addTo(this.scene);
 
-    this.ground = new Ground();
-    this.ground.addTo(this.scene);
-
-    this.track = new Track();
-    this.track.addTo(this.scene);
-
     this.sky = new Sky();
     this.sky.addTo(this.scene);
 
-    this.streetLamps = new StreetLamps({ track: this.track });
-    this.streetLamps.addTo(this.scene);
+    this.trackManager = new TrackManager({ scene: this.scene });
+    this._loadTrackWorld(TRACKS[0].id);
 
     this.timeOfDay = new TimeOfDay({
       scene: this.scene,
       lighting: this.lighting,
       sky: this.sky,
+      themeLighting: this.world.theme.lighting,
     });
+  }
 
-    // One shared sample array for race logic, AI drivers, collisions, minimap.
-    this._trackSamples = this.track.getSampledPositions(TRACK_SAMPLE_COUNT);
+  // Builds (or rebuilds) everything tied to a specific track. Systems that
+  // depend on the layout are recreated here; nothing else knows which track
+  // is loaded.
+  _loadTrackWorld(trackId) {
+    this.world = this.trackManager.load(trackId);
+    this.trackId = trackId;
+    this.track = this.world.track;
+    this.streetLamps = this.world.streetLamps;
+    this.startFinish = this.world.startFinish;
+    this.ground = this.world.ground;
+    this.scenery = this.world.scenery;
+    this._trackSamples = this.world.samples;
+    this._lastLapShown = 0;
+  }
+
+  // Every system whose behavior depends on the track layout. Rebuilt whenever
+  // a different track is loaded; nothing here knows *which* track it is.
+  _buildTrackSystems() {
+    const samples = this._trackSamples;
+    const roadWidth = this.world.roadWidth;
+    const data = this.world.data;
+
+    this.raceManager = new RaceManager({ samples, playerId: PLAYER_ID });
+    this.raceManager.registerCar(PLAYER_ID);
+    for (const aiCar of this.aiCars) this.raceManager.registerCar(aiCar.id);
+
+    this.collisions = new Collisions({ samples, roadWidth });
+
+    this.itemManager = new ItemManager({
+      samples,
+      aiUseDelay: CONFIG.tiers[data.tier]?.aiItemDelay,
+    });
+    this.itemManager.registerCar(PLAYER_ID);
+    for (const aiCar of this.aiCars) this.itemManager.registerCar(aiCar.id);
+
+    this.pickupManager = new PickupManager({
+      track: this.track,
+      itemManager: this.itemManager,
+      pickupData: data.pickups,
+    });
+    this.pickupManager.addTo(this.scene);
+
+    this.obstacleManager = new ObstacleManager({
+      track: this.track,
+      samples,
+      obstacleData: data.obstacles,
+    });
+    this.obstacleManager.addTo(this.scene);
+
+    // AI and attract drivers path on the new spline. baseMaxSpeed carries
+    // over: params.maxSpeed may already be difficulty-scaled.
+    for (const aiCar of this.aiCars) {
+      const base = aiCar.driver.baseMaxSpeed;
+      const baseAgg = aiCar.driver.baseAggression;
+      aiCar.driver = this._makeDriver(aiCar.driver.params, roadWidth);
+      aiCar.driver.baseMaxSpeed = base;
+      aiCar.driver.baseAggression = baseAgg;
+    }
+    this._attractDriver = this._makeDriver(
+      { maxSpeed: CONFIG.car.maxSpeed * 0.8, aggression: 0.85, lateralOffset: 0.5 },
+      roadWidth
+    );
+
+    if (this.minimapCanvas) {
+      this.minimap = new Minimap(this.minimapCanvas, samples);
+    }
+  }
+
+  _makeDriver(params, roadWidth) {
+    const driver = new AIDriver({ samples: this._trackSamples, params, roadWidth });
+    driver.baseMaxSpeed = params.maxSpeed;
+    driver.baseAggression = params.aggression;
+    return driver;
+  }
+
+  // Swap to a different track: tear the old world down, rebuild systems,
+  // re-place the grid.
+  switchTrack(trackId) {
+    if (trackId === this.trackId) return;
+    this.obstacleManager.removeFrom(this.scene);
+    for (const pickup of this.pickupManager.pickups) pickup.mesh.removeFromParent();
+    this.pickupManager.sparkles?.removeFromParent();
+
+    this._loadTrackWorld(trackId);
+    this.timeOfDay.setThemeLighting(this.world.theme.lighting);
+    this._buildTrackSystems();
+    this.itemVisuals?.reset();
+    this.skidMarks?.endTrail();
+    this._placeCarsOnGrid();
+    this.raceManager.primeCarPositions(this._collectCarsData());
   }
 
   _initEntities() {
-    this.car = new Car({ isPlayer: true });
+    this.car = new Car({ isPlayer: true, style: 'racer' });
     this.scene.add(this.car.mesh);
 
     this.aiCars = [];
@@ -173,13 +365,17 @@ export class Game {
       const { hex, name } = CONFIG.ai.colors[i % CONFIG.ai.colors.length];
       const driver = new AIDriver({
         samples: this._trackSamples,
+        roadWidth: this.world.roadWidth,
         params: {
           maxSpeed: CONFIG.car.maxSpeed * randRange(CONFIG.ai.maxSpeedFactor),
           aggression: randRange(CONFIG.ai.aggression),
           lateralOffset: (Math.random() * 2 - 1) * CONFIG.ai.lateralOffsetRange,
         },
       });
-      const aiCar = new AICar({ color: hex, name, driver });
+      driver.baseMaxSpeed = driver.params.maxSpeed; // difficulty/tier scale from these
+      driver.baseAggression = driver.params.aggression;
+      // AI get random body styles for variety in the pack.
+      const aiCar = new AICar({ color: hex, name, driver, style: randomStyle() });
       aiCar.id = `ai-${i}`;
       this.aiCars.push(aiCar);
       this.scene.add(aiCar.mesh);
@@ -224,6 +420,27 @@ export class Game {
     const dt = Math.min(this.clock.getDelta(), MAX_DELTA);
     const rawInput = this.input.getState();
 
+    // Esc toggles pause while racing.
+    if (rawInput.pause && !this._pauseHeld) {
+      if (this.mode === 'racing') this.pauseRace();
+      else if (this.mode === 'paused') {
+        this.menu.hide();
+        this.resumeRace();
+      }
+    }
+    this._pauseHeld = rawInput.pause;
+
+    if (this.mode === 'paused') {
+      // Truly paused: no physics, no timers — just keep presenting the frame.
+      this.postProcessing.render();
+      return;
+    }
+
+    if (this.mode === 'menu') {
+      this._tickAttract(dt);
+      return;
+    }
+
     // Edge-detect R so holding the key doesn't restart every frame.
     if (rawInput.restart && !this._restartHeld) this._restartRace();
     this._restartHeld = rawInput.restart;
@@ -246,7 +463,9 @@ export class Game {
     this._elapsed += dt;
 
     // Controls are dead until "GO!" and after the finish line.
-    const locked = this.raceManager.controlsLocked || this.raceManager.state === 'finished';
+    // Only the pre-race countdown takes controls away. A player who has
+    // finished can keep driving during the end-of-race window.
+    const locked = this.raceManager.controlsLocked;
     const input = locked ? NEUTRAL_INPUT : rawInput;
 
     // Effects are re-applied from scratch every frame, so a modifier only lasts
@@ -285,7 +504,9 @@ export class Game {
       });
     }
 
-    // Collisions mutate physics positions/velocities, so meshes re-sync after.
+    // Ramp surfaces and collisions are both positional corrections applied
+    // after the cars have moved; meshes re-sync below.
+    events.push(...this.obstacleManager.resolveRamps(effectCars));
     this.collisions.resolve([
       this.car.physics,
       ...this.aiCars.map((aiCar) => aiCar.physics),
@@ -301,13 +522,120 @@ export class Game {
 
     const state = this.car.physics.getState();
     this._updateDriftEffects(dt, state);
+    this._updateAudio(dt, state, events);
+
+    // Camera shake from anything that hits the player hard.
+    for (const impact of this.collisions.impacts) {
+      if (impact.a === this.car.physics || impact.b === this.car.physics) {
+        this.chaseCamera.addShake(Math.min(0.7, impact.force / 14));
+        break;
+      }
+    }
+    for (const event of events) {
+      if (event.carId !== PLAYER_ID) continue;
+      if (event.type === 'tires-hit') this.chaseCamera.addShake(0.6);
+      else if (event.type === 'spinout') this.chaseCamera.addShake(0.45);
+    }
+    if (state.justLanded) {
+      const force = Math.min(1, state.landingImpact / 11);
+      this.chaseCamera.addShake(force * 0.5);
+      this.chaseCamera.addDip(force);
+    }
+
+    // Dust/snow kicked up wherever a kart touches down.
+    for (const car of [this.car, ...this.aiCars]) {
+      if (!car.physics.justLanded) continue;
+      const p = car.physics;
+      const tint = this.world.theme.name === 'desert' ? '#e8c48c' : '#eef4ff';
+      this.particles.burst(16, () => ({
+        position: { x: p.x, y: 0.25, z: p.z },
+        color: tint,
+        size: 26,
+        life: 0.55,
+        spread: 5.5,
+        gravity: 5,
+      }));
+      if (car === this.car) this.audio.play('land');
+    }
 
     const playerItems = this.itemManager.getCarItems(PLAYER_ID);
-    const nitroFov = playerItems.nitroTimer > 0 ? CONFIG.items.nitro.fovBoost : 0;
+    const padState = this.obstacleManager.getBoostState(PLAYER_ID);
+    const boosting = playerItems.nitroTimer > 0 || padState > 0;
+    const nitroFov =
+      (playerItems.nitroTimer > 0 ? CONFIG.items.nitro.fovBoost : 0) +
+      (padState > 0 ? CONFIG.items.nitro.fovBoost * 0.7 : 0);
+    this.hud.setSpeedLines(boosting);
     this.chaseCamera.update(dt, this.car.mesh, state, nitroFov);
 
     this.postProcessing.render();
     this._updateHud(dt, state);
+  }
+
+  _updateAudio(dt, state, events) {
+    const audio = this.audio;
+
+    // Engine: player pitch/volume from speed; the 3 nearest AI get quiet,
+    // distance-attenuated voices.
+    const maxSpeed = CONFIG.car.maxSpeed;
+    const nearestAi = this.aiCars
+      .map((aiCar) => ({
+        distance: Math.hypot(
+          aiCar.physics.x - state.x,
+          aiCar.physics.z - state.z
+        ),
+        speedRatio: Math.min(
+          1,
+          Math.hypot(aiCar.physics.vx, aiCar.physics.vz) / maxSpeed
+        ),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 3);
+    audio.updateEngine(
+      Math.min(1, Math.abs(state.speed) / maxSpeed),
+      this.input.getState().forward ? 1 : 0,
+      nearestAi
+    );
+    audio.updateDrift(state.drifting, state.slipDeg);
+
+    // Countdown beeps + GO.
+    const countdown = this.raceManager.getCountdownDisplay();
+    if (countdown !== this._lastCountdownSound) {
+      this._lastCountdownSound = countdown;
+      if (countdown === 'GO!') audio.play('go');
+      else if (countdown !== null) audio.play('beep');
+    }
+
+    // Gameplay event sounds — same list the visuals consume.
+    for (const event of events) {
+      if (event.type === 'pickup' && event.carId === PLAYER_ID) audio.play('pickup');
+      else if (event.type === 'nitro' && event.carId === PLAYER_ID) audio.play('nitro');
+      else if (event.type === 'shield' && event.carId === PLAYER_ID) audio.play('shieldOn');
+      else if (event.type === 'rocket') audio.play('rocket');
+      else if (event.type === 'shield-broken') audio.play('shieldPop');
+      else if (event.type === 'spinout' && event.carId === PLAYER_ID) audio.play('spinout');
+      else if (event.type === 'boost-pad' && event.carId === PLAYER_ID) audio.play('boostPad');
+      else if (event.type === 'ramp-launch' && event.carId === PLAYER_ID) audio.play('jump');
+      else if (
+        (event.type === 'tires-hit' || event.type === 'cone-hit') &&
+        event.carId === PLAYER_ID
+      ) {
+        audio.play('collision', event.type === 'cone-hit' ? 0.4 : 1);
+      }
+    }
+
+    // Car-vs-car thumps involving the player.
+    for (const impact of this.collisions.impacts) {
+      if ((impact.a === this.car.physics || impact.b === this.car.physics) && impact.force > 3) {
+        audio.play('collision', Math.min(1, impact.force / 12));
+        break;
+      }
+    }
+
+    // Music speeds up on the final lap.
+    const race = this.raceManager.getCarState(PLAYER_ID);
+    audio.setMusicFast(
+      race.lapsCompleted >= this.raceManager.totalLaps - 1 && !race.finished
+    );
   }
 
   // Applies the current time-of-day state to everything that reacts to it:
@@ -370,7 +698,58 @@ export class Game {
     return cars;
   }
 
+  // Attract mode behind the main menu: every kart drives idle laps on AI,
+  // the camera slowly orbits the track. No race logic, no HUD, no items.
+  _tickAttract(dt) {
+    this._elapsed += dt;
+    this.renderer.info.reset();
+    this._applyPixelRatio();
+    this.timeOfDay.update(dt);
+    this._updateLighting(dt);
+
+    const carsData = this._collectCarsData();
+    const context = (selfId, driver) => ({
+      cars: carsData,
+      selfId,
+      playerProgress: 0,
+      myProgress: 0,
+      raceRunning: true,
+    });
+
+    this.car.update(dt, this._attractDriver.getInput(this.car.physics, context(PLAYER_ID), dt));
+    for (const aiCar of this.aiCars) {
+      aiCar.update(dt, aiCar.driver.getInput(aiCar.physics, context(aiCar.id), dt));
+    }
+
+    this.obstacleManager.resolveRamps(this._collectEffectCars());
+    this.collisions.resolve([this.car.physics, ...this.aiCars.map((c) => c.physics)]);
+    this.car.syncTransform();
+    for (const aiCar of this.aiCars) aiCar.syncTransform();
+
+    // Scenery keeps living: boxes rotate, particles fade.
+    this.pickupManager.update(dt, this._elapsed, []);
+    this.obstacleManager.update(dt, this._elapsed, []);
+    this.particles.update(dt);
+    this.tireSmoke.update(dt);
+
+    this.kartPreview?.update(dt);
+
+    this._menuCameraAngle += dt * 0.06;
+    const radius = 135;
+    this.camera.position.set(
+      Math.cos(this._menuCameraAngle) * radius,
+      58,
+      Math.sin(this._menuCameraAngle) * radius
+    );
+    this.camera.lookAt(0, 0, -8);
+
+    this.postProcessing.render();
+  }
+
   _restartRace() {
+    this._lastCountdownSound = null;
+    this._lastLapShown = 0;
+    this.audio.setEngineActive(true);
     this.raceManager.restart();
     this._placeCarsOnGrid();
     this.raceManager.primeCarPositions(this._collectCarsData());
@@ -388,21 +767,163 @@ export class Game {
   }
 
   _buildStandings() {
-    const rankings = this.raceManager.getRankings();
     const nameById = new Map([[PLAYER_ID, { name: 'You', color: this.car.color }]]);
     for (const aiCar of this.aiCars) {
       nameById.set(aiCar.id, { name: aiCar.name, color: aiCar.color });
     }
-    return rankings.map((entry, i) => ({
-      rank: i + 1,
+
+    // Once the race is classified, show the official result; before that,
+    // show the live order.
+    const source =
+      this.raceManager.state === 'finished'
+        ? this.raceManager.getResults()
+        : this.raceManager.getRankings().map((r, i) => ({
+            ...r,
+            position: i + 1,
+            points: null,
+            dnf: false,
+          }));
+
+    return source.map((entry, i) => ({
+      rank: entry.position ?? i + 1,
       name: nameById.get(entry.id).name,
       color: nameById.get(entry.id).color,
       isPlayer: entry.id === PLAYER_ID,
       finished: entry.finished,
-      finishTime: entry.finishTime,
-      lap: Math.min(entry.lapsCompleted + 1, this.raceManager.totalLaps),
+      dnf: entry.dnf,
+      points: entry.points,
+      finishTime: entry.finishTime ?? entry.totalTime,
+      lap: Math.min((entry.lapsCompleted ?? 0) + 1, this.raceManager.totalLaps),
       totalLaps: this.raceManager.totalLaps,
     }));
+  }
+
+  // Applies the current time-of-day state to everything that reacts to it:
+  // car lights, street lamps, sky, emissive strength and bloom.
+  _updateLighting(dt) {
+    const state = this.timeOfDay.getState();
+
+    // How "night-like" the current blend is, derived from ambient darkness so
+    // it moves smoothly during a transition rather than flipping.
+    const dayAmbient = CONFIG.timeOfDay.modes.day.ambientIntensity;
+    const nightAmbient = CONFIG.timeOfDay.modes.night.ambientIntensity;
+    const nightFactor = THREE.MathUtils.clamp(
+      (dayAmbient - state.ambientIntensity) / (dayAmbient - nightAmbient),
+      0,
+      1
+    );
+    this._nightFactor = nightFactor;
+
+    // Single shadow-casting light, with its small frustum kept over the player.
+    this.lighting.applyQuality();
+    this.lighting.setDirection(state.sunDirection);
+    this.lighting.follow(this.car.mesh.position);
+
+    this.car.updateLights(state.headlights, nightFactor);
+    for (const aiCar of this.aiCars) aiCar.updateLights(state.headlights, nightFactor);
+
+    this.ground.setNightFactor(nightFactor);
+    this.streetLamps.update(this.camera.position, nightFactor);
+    this.sky.update(dt, this._elapsed, this.camera.position);
+    this.particles.setEmissiveBoost(state.emissiveBoost);
+    Pickup.setEmissiveBoost(state.emissiveBoost);
+    this.itemVisuals.setEmissiveBoost(state.emissiveBoost);
+    this.postProcessing.setNightFactor(nightFactor);
+  }
+
+  // Shape shared by the pickup/obstacle/item systems: every car with its
+  // physics, race rank and progress.
+  _collectEffectCars() {
+    const rankById = new Map();
+    this.raceManager.getRankings().forEach((entry, i) => rankById.set(entry.id, i + 1));
+
+    const cars = [
+      {
+        id: PLAYER_ID,
+        physics: this.car.physics,
+        isPlayer: true,
+        rank: rankById.get(PLAYER_ID) ?? 1,
+        progress: this.raceManager.getCarState(PLAYER_ID).progress,
+      },
+    ];
+    for (const aiCar of this.aiCars) {
+      cars.push({
+        id: aiCar.id,
+        physics: aiCar.physics,
+        isPlayer: false,
+        rank: rankById.get(aiCar.id) ?? 1,
+        progress: this.raceManager.getCarState(aiCar.id).progress,
+      });
+    }
+    return cars;
+  }
+
+  // Attract mode behind the main menu: every kart drives idle laps on AI,
+  // the camera slowly orbits the track. No race logic, no HUD, no items.
+  _tickAttract(dt) {
+    this._elapsed += dt;
+    this.renderer.info.reset();
+    this._applyPixelRatio();
+    this.timeOfDay.update(dt);
+    this._updateLighting(dt);
+
+    const carsData = this._collectCarsData();
+    const context = (selfId, driver) => ({
+      cars: carsData,
+      selfId,
+      playerProgress: 0,
+      myProgress: 0,
+      raceRunning: true,
+    });
+
+    this.car.update(dt, this._attractDriver.getInput(this.car.physics, context(PLAYER_ID), dt));
+    for (const aiCar of this.aiCars) {
+      aiCar.update(dt, aiCar.driver.getInput(aiCar.physics, context(aiCar.id), dt));
+    }
+
+    this.obstacleManager.resolveRamps(this._collectEffectCars());
+    this.collisions.resolve([this.car.physics, ...this.aiCars.map((c) => c.physics)]);
+    this.car.syncTransform();
+    for (const aiCar of this.aiCars) aiCar.syncTransform();
+
+    // Scenery keeps living: boxes rotate, particles fade.
+    this.pickupManager.update(dt, this._elapsed, []);
+    this.obstacleManager.update(dt, this._elapsed, []);
+    this.particles.update(dt);
+    this.tireSmoke.update(dt);
+
+    this.kartPreview?.update(dt);
+
+    this._menuCameraAngle += dt * 0.06;
+    const radius = 135;
+    this.camera.position.set(
+      Math.cos(this._menuCameraAngle) * radius,
+      58,
+      Math.sin(this._menuCameraAngle) * radius
+    );
+    this.camera.lookAt(0, 0, -8);
+
+    this.postProcessing.render();
+  }
+
+  _restartRace() {
+    this._lastCountdownSound = null;
+    this._lastLapShown = 0;
+    this.audio.setEngineActive(true);
+    this.raceManager.restart();
+    this._placeCarsOnGrid();
+    this.raceManager.primeCarPositions(this._collectCarsData());
+    this.collisions.reset();
+    this.itemManager.reset();
+    this.pickupManager.reset();
+    this.obstacleManager.reset();
+    this.itemVisuals.reset();
+    this.skidMarks.endTrail();
+    this.hud.hideFinish();
+    this.hud.resetDriftDisplay();
+    this.hud.setItem(null);
+    this._finishShown = false;
+    this._useItemHeld = false;
   }
 
   _updateDriftEffects(dt, state) {
@@ -428,10 +949,13 @@ export class Game {
     this.hud.setItem(this.itemManager.getCarItems(PLAYER_ID).item);
 
     const race = this.raceManager.getCarState(PLAYER_ID);
-    this.hud.setLap(
-      Math.min(race.lapsCompleted + 1, this.raceManager.totalLaps),
-      this.raceManager.totalLaps
-    );
+    const lapShown = Math.min(race.lapsCompleted + 1, this.raceManager.totalLaps);
+    this.hud.setLap(lapShown, this.raceManager.totalLaps);
+    if (lapShown !== this._lastLapShown) {
+      if (lapShown > this._lastLapShown && this._lastLapShown > 0) this.audio.play('lap');
+      this._lastLapShown = lapShown;
+      this.startFinish.setLap(lapShown, this.raceManager.totalLaps);
+    }
     this.hud.setRaceTime(this.raceManager.raceTime);
     this.hud.setBestLap(race.bestLap);
 
@@ -440,12 +964,36 @@ export class Game {
     const playerRank = rankings.findIndex((entry) => entry.id === PLAYER_ID) + 1;
     this.hud.setPosition(playerRank);
 
-    if (race.finished && !this._finishShown) {
+    // The overlay appears when the RACE concludes (podium + end window), not
+    // when the player personally crosses the line.
+    if (this.raceManager.state === 'finished' && !this._finishShown) {
       this._finishShown = true;
-      this.hud.showFinish(race.finishTime, race.bestLap);
+      this.audio.play('finish');
+      this.audio.setEngineActive(false);
+
+      const results = this.raceManager.results ?? this.raceManager.getResults();
+      const mine = results.find((r) => r.id === PLAYER_ID);
+      const newRecords = this.records.submitRace({
+        trackId: this.trackId,
+        laps: this.raceManager.totalLaps,
+        difficulty: this._difficultyName ?? 'normal',
+        totalTime: race.finishTime,
+        bestLap: race.bestLap,
+        driftScore: state.totalScore,
+        position: mine?.position ?? results.length,
+      });
+      this.hud.showFinish(race.finishTime, race.bestLap, {
+        position: mine?.position,
+        dnf: mine?.dnf,
+        points: mine?.points,
+        newRecords,
+      });
       this.hud.updateStandings(this._buildStandings());
       this._standingsTimer = 0;
     }
+
+    // Countdown shown while the last cars come home.
+    this.hud.setEndgameTimer(this.raceManager.endgameRemaining);
 
     // Standings stay live while the overlay is up (AI keep finishing laps).
     if (this._finishShown) {
@@ -511,6 +1059,12 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.postProcessing.setSize(window.innerWidth, window.innerHeight);
   }
+}
+
+// Gamepad ids are long vendor strings; keep the readable part for the toast.
+function shortPadName(id = '') {
+  const cleaned = id.replace(/\(.*?\)/g, '').trim();
+  return (cleaned || 'Controller').slice(0, 28);
 }
 
 function randRange([min, max]) {

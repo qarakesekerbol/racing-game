@@ -1,4 +1,5 @@
 import { CONFIG } from '../core/config.js';
+import { ITEM_SVG, ITEM_NAMES } from '../entities/ItemIcons.js';
 
 // DOM-based HUD: speedometer, lap/timer boxes, position badge, drift indicator,
 // countdown and finish overlays. The only place where seconds/m/s become display text.
@@ -25,8 +26,12 @@ export class HUD {
     this.finishBestElement = document.getElementById('finish-best');
 
     this.onRestart = null;
+    this.onBackToMenu = null;
     document.getElementById('restart-button').addEventListener('click', () => {
       if (this.onRestart) this.onRestart();
+    });
+    document.getElementById('menu-button').addEventListener('click', () => {
+      if (this.onBackToMenu) this.onBackToMenu();
     });
 
     this.itemPanel = document.getElementById('hud-item');
@@ -67,9 +72,17 @@ export class HUD {
 
   setPosition(rank) {
     if (rank === this._lastRank) return;
+    const changed = this._lastRank !== 0;
     this._lastRank = rank;
     document.getElementById('position-value').textContent = rank;
     document.getElementById('position-suffix').textContent = ordinalSuffix(rank);
+
+    if (changed) {
+      const badge = document.getElementById('hud-position');
+      badge.classList.remove('pos-change');
+      void badge.offsetWidth; // restart the pop animation
+      badge.classList.add('pos-change');
+    }
   }
 
   // display: '3' | '2' | '1' | 'GO!' | null
@@ -90,11 +103,98 @@ export class HUD {
     el.classList.add('pop');
   }
 
-  showFinish(totalSeconds, bestLapSeconds) {
+  showFinish(totalSeconds, bestLapSeconds, { position, dnf, points, newRecords = [] } = {}) {
     this.finishTimeElement.textContent = formatTime(totalSeconds);
     this.finishBestElement.textContent =
       bestLapSeconds === null ? '--:--.---' : formatTime(bestLapSeconds);
+
+    const positionElement = document.getElementById('finish-position');
+    if (dnf) {
+      positionElement.textContent = 'Did not finish';
+      positionElement.style.color = '#ff8a7a';
+    } else if (position) {
+      const pts = points !== undefined ? ` — ${points} pts` : '';
+      positionElement.textContent = `You finished ${position}${ordinalSuffix(position)}!${pts}`;
+      positionElement.style.color = position === 1 ? '#ffd75e' : '#fff';
+    } else {
+      positionElement.textContent = '';
+    }
+
+    const banner = document.getElementById('record-banner');
+    banner.hidden = newRecords.length === 0;
+    if (newRecords.length) {
+      banner.textContent = `★ New record! ${newRecords.join(' · ')}`;
+    }
+
+    if (position === 1 && !dnf) this._spawnConfetti();
     this.finishOverlay.hidden = false;
+  }
+
+  _spawnConfetti() {
+    const container = document.getElementById('finish-confetti');
+    container.replaceChildren();
+    const colors = ['#ffd75e', '#e04444', '#3a72d8', '#36b24a', '#e84393', '#f0f0f0'];
+    for (let i = 0; i < 90; i++) {
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = `${Math.random() * 100}%`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDuration = `${2.2 + Math.random() * 2.5}s`;
+      piece.style.animationDelay = `${Math.random() * 1.5}s`;
+      container.append(piece);
+    }
+    clearTimeout(this._confettiTimeout);
+    this._confettiTimeout = setTimeout(() => container.replaceChildren(), 7000);
+  }
+
+  // seconds: number while the end-of-race window runs, null otherwise.
+  setEndgameTimer(seconds) {
+    const el = document.getElementById('endgame-timer');
+    if (seconds === null || seconds === undefined) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    document.getElementById('endgame-seconds').textContent = Math.ceil(seconds);
+    el.classList.toggle('urgent', seconds <= 5);
+  }
+
+  // Small corner badge showing which device is currently driving.
+  setInputMethod(method) {
+    const icons = { keyboard: '⌨', gamepad: '🎮', touch: '👆' };
+    const el = document.getElementById('input-method-icon');
+    if (el) el.textContent = icons[method] ?? icons.keyboard;
+    const wrap = document.getElementById('input-method');
+    if (wrap) {
+      wrap.classList.remove('flash');
+      void wrap.offsetWidth;
+      wrap.classList.add('flash');
+    }
+  }
+
+  showToast(text, duration = 2600) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = text;
+    el.hidden = false;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(this._toastTimeout);
+    this._toastTimeout = setTimeout(() => {
+      el.classList.remove('show');
+      el.hidden = true;
+    }, duration);
+  }
+
+  setSpeedLines(active) {
+    if (active === this._speedLinesActive) return;
+    this._speedLinesActive = active;
+    document.getElementById('speed-lines').classList.toggle('active', active);
+  }
+
+  setVisible(visible) {
+    document.getElementById('hud').style.display = visible ? '' : 'none';
   }
 
   // standings: [{ rank, name, color, isPlayer, finished, finishTime, lap, totalLaps }]
@@ -118,17 +218,30 @@ export class HUD {
 
       const time = document.createElement('span');
       time.className = 'standing-time';
-      time.textContent = entry.finished
-        ? formatTime(entry.finishTime)
-        : `Lap ${entry.lap}/${entry.totalLaps}`;
+      if (entry.dnf) {
+        time.textContent = 'DNF';
+        time.classList.add('dnf');
+      } else if (entry.finished) {
+        time.textContent = formatTime(entry.finishTime);
+      } else {
+        time.textContent = `Lap ${entry.lap}/${entry.totalLaps}`;
+      }
 
       row.append(rank, name, time);
+
+      if (entry.points !== null && entry.points !== undefined) {
+        const points = document.createElement('span');
+        points.className = 'standing-points';
+        points.textContent = `${entry.points}`;
+        row.append(points);
+      }
       container.append(row);
     }
   }
 
   hideFinish() {
     this.finishOverlay.hidden = true;
+    document.getElementById('finish-confetti').replaceChildren();
   }
 
   updateDrift(state) {
@@ -189,8 +302,8 @@ export class HUD {
     const gained = item !== null && this._lastItem !== item;
     this._lastItem = item;
 
-    const info = ITEM_DISPLAY[item] ?? { icon: '—', name: 'No item' };
-    this.itemIcon.textContent = info.icon;
+    const info = ITEM_DISPLAY[item] ?? { icon: '<span style="opacity:.5">—</span>', name: 'No item' };
+    this.itemIcon.innerHTML = info.icon;
     this.itemName.textContent = info.name;
     this.itemPanel.classList.toggle('has-item', item !== null);
 
@@ -229,13 +342,11 @@ export class HUD {
   }
 }
 
-const ITEM_DISPLAY = {
-  nitro: { icon: '🔥', name: 'Nitro' },
-  shield: { icon: '🛡️', name: 'Shield' },
-  oil: { icon: '🛢️', name: 'Oil Slick' },
-  rocket: { icon: '🚀', name: 'Rocket' },
-  slowdown: { icon: '🐌', name: 'Slowdown' },
-};
+// HUD icons come from ItemIcons so the 2D slot art matches the 3D icon that
+// floats inside a pickup sphere.
+const ITEM_DISPLAY = Object.fromEntries(
+  Object.entries(ITEM_SVG).map(([type, icon]) => [type, { icon, name: ITEM_NAMES[type] }])
+);
 
 function ordinalSuffix(n) {
   const ones = n % 10;

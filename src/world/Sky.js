@@ -47,6 +47,48 @@ export class Sky {
     this.group.add(this.dome);
 
     this._buildStars();
+    this._buildClouds();
+  }
+
+  _buildClouds() {
+    // Soft blob sprite texture, drawn once.
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    for (const [cx, cy, r] of [[64, 74, 44], [38, 82, 30], [92, 84, 32], [60, 60, 26]]) {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, 'rgba(255,255,255,0.85)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+
+    this._cloudMaterial = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+      fog: false,
+    });
+    this.clouds = new THREE.Group();
+    const count = 9;
+    for (let i = 0; i < count; i++) {
+      const sprite = new THREE.Sprite(this._cloudMaterial);
+      const angle = (i / count) * Math.PI * 2 + Math.random();
+      const radius = 180 + Math.random() * 160;
+      sprite.position.set(
+        Math.cos(angle) * radius,
+        110 + Math.random() * 90,
+        Math.sin(angle) * radius
+      );
+      const w = 70 + Math.random() * 70;
+      sprite.scale.set(w, w * 0.42, 1);
+      this.clouds.add(sprite);
+    }
+    this.group.add(this.clouds);
   }
 
   _buildStars() {
@@ -109,6 +151,7 @@ export class Sky {
   update(dt, elapsed, cameraPosition) {
     this.group.position.copy(cameraPosition);
     this.starMaterial.uniforms.uTime.value = elapsed;
+    this.clouds.rotation.y += dt * 0.004; // slow drift
   }
 
   applyMode({ skyTop, skyBottom, starOpacity }) {
@@ -116,6 +159,8 @@ export class Sky {
     this.domeMaterial.uniforms.uBottom.value.copy(skyBottom);
     this.starMaterial.uniforms.uOpacity.value = starOpacity;
     this.stars.visible = starOpacity > 0.01;
+    // Clouds dim at night rather than disappearing.
+    this._cloudMaterial.opacity = 0.8 * (1 - starOpacity) + 0.08;
   }
 
   addTo(scene) {

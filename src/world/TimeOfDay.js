@@ -8,18 +8,30 @@ import { CONFIG } from '../core/config.js';
 const MODE_ORDER = ['day', 'sunset', 'night'];
 
 export class TimeOfDay {
-  constructor({ scene, lighting, sky }) {
+  constructor({ scene, lighting, sky, themeLighting = {} }) {
     this.scene = scene;
     this.lighting = lighting;
     this.sky = sky;
+    // Theme overrides (e.g. desert haze) merged over the base modes.
+    this.themeLighting = themeLighting;
 
     this.modeIndex = Math.max(0, MODE_ORDER.indexOf(CONFIG.timeOfDay.startMode));
-    this._from = resolveMode(MODE_ORDER[this.modeIndex]);
+    this._from = resolveMode(MODE_ORDER[this.modeIndex], this.themeLighting);
     this._to = this._from;
     this._blend = 1; // 1 = fully at _to
     this._autoTimer = 0;
 
     this.current = cloneState(this._from);
+    this._apply();
+  }
+
+  // Re-apply with a different theme's palette (track switch).
+  setThemeLighting(themeLighting) {
+    this.themeLighting = themeLighting ?? {};
+    this._from = resolveMode(this.modeName, this.themeLighting);
+    this._to = this._from;
+    this.current = cloneState(this._from);
+    this._blend = 1;
     this._apply();
   }
 
@@ -43,7 +55,7 @@ export class TimeOfDay {
     // so rapid toggles never pop.
     this._from = cloneState(this.current);
     this.modeIndex = index;
-    this._to = resolveMode(name);
+    this._to = resolveMode(name, this.themeLighting);
     this._blend = 0;
     this._autoTimer = 0;
   }
@@ -88,8 +100,8 @@ export class TimeOfDay {
   }
 }
 
-function resolveMode(name) {
-  const raw = CONFIG.timeOfDay.modes[name];
+function resolveMode(name, themeLighting = {}) {
+  const raw = { ...CONFIG.timeOfDay.modes[name], ...(themeLighting[name] ?? {}) };
   return {
     sunDirection: new THREE.Vector3(...raw.sunDirection),
     sunColor: new THREE.Color(raw.sunColor),

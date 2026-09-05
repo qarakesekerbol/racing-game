@@ -187,6 +187,15 @@ export class ItemVisuals {
           spread: 7,
           gravity: 4,
         }));
+      } else if (event.type === 'boost-pad') {
+        this.particles.burst(18, () => ({
+          position: { x: event.position.x, y: 0.3, z: event.position.z },
+          color: Math.random() < 0.5 ? '#5ad2ff' : '#c9f0ff',
+          size: 22,
+          life: 0.45,
+          spread: 5,
+          gravity: -2, // drift upward
+        }));
       } else if (event.type === 'cone-hit') {
         this.particles.burst(6, () => ({
           position: { x: event.position.x, y: 0.4, z: event.position.z },
